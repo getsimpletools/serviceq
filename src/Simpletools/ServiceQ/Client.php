@@ -49,7 +49,7 @@ class Client
         return $this;
     }
 
-    protected function _prepareMessagePayload($msg)
+    protected function _prepareMessagePayload($msg,$etc=array())
     {
         $envelope               = array();
         $mtime                  = microtime(true);
@@ -57,13 +57,18 @@ class Client
         $envelope['header']     = array(
             'status'        => $this->_statusCode,
             'creator'       => $this->_getTopmostScript(),
-            'serviceQueue'  => $this->_queue,
+            'queue'         => ['name'=>$this->_queue],
             'date'          => [
                 'atom'          => date(DATE_ATOM),
                 'mtimestamp'    => $mtime,
                 'timestamp'     => time()
             ]
         );
+
+        if(isset($etc['topic']))
+        {
+            $envelope['header']['queue']['topic'] = $etc['topic'];
+        }
 
         if($this->_serviceQRequest)
         {
@@ -263,7 +268,7 @@ class Client
 
     public function publishTopic($topic,$msg,$properties=null)
     {
-        $msg = new AMQPMessage($this->_prepareMessagePayload($msg),$properties);
+        $msg = new AMQPMessage($this->_prepareMessagePayload($msg,['topic'=>$topic]),$properties);
 
         $this->_channel->exchange_declare($this->_queue,'topic',false,false,false);
         $this->_channel->basic_publish($msg, $this->_queue, $topic);
