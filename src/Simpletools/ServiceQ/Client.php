@@ -72,7 +72,7 @@ class Client
 
         if($this->_serviceQRequest)
         {
-            $payload['meta']['servingTimeMicroSec'] = $mtime - $this->_serviceQRequest->meta->date->mtimestamp;
+            $payload['meta']['servingTimeMicroSec'] = $mTime - $this->_serviceQRequest->meta->date->mtimestamp;
         }
 
         if($this->_payloadMeta)
@@ -144,6 +144,14 @@ class Client
             {
                 $e = new ResponseException("",@$this->_rpcResponse->status);
                 $e->setResponse($response);
+
+                $bindings = Client::getBindings('onResponseException');
+
+                foreach($bindings as $bind)
+                {
+                    $bind($e,$this);
+                }
+
                 throw $e;
             }
         }
@@ -340,9 +348,9 @@ class Client
         return $key;
     }
 
-    public static function getEventCallback($callbackName)
+    public static function getBindings($event)
     {
-        return isset(self::$_events[$callbackName]) ? self::$_events[$callbackName] : false;
+        return isset(self::$_events[$event]) ? self::$_events[$event] : array();
     }
 
     public static function service($queue)

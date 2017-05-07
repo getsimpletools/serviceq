@@ -22,10 +22,12 @@ class CallResponse
             ->setServiceQRequest($req);
 
 
-        $onRequestReceivedCallback = Client::getEventCallback('onRequestReceived');
-        if($onRequestReceivedCallback)
+        $bindings = Client::getBindings('onRequestReceived');
+        if($bindings)
         {
-            $onRequestReceivedCallback($req,$this->_client);
+            foreach($bindings as $bind) {
+                $bind($req, $this->_client);
+            }
         }
 
         $callback = $this->_callback;
