@@ -15,11 +15,20 @@ class CallResponse
 
     public function respond($request)
     {
-        $this->_client->setRequest($request);
+        $req                = json_decode($request->body);
 
-        $request->body = json_decode($request->body);
+        $this->_client
+            ->setRequest($request)
+            ->setServiceQRequest($req);
+
+
+        $onRequestReceivedCallback = Client::getEventCallback('onRequestReceived');
+        if($onRequestReceivedCallback)
+        {
+            $onRequestReceivedCallback($req,$this->_client);
+        }
+
         $callback = $this->_callback;
-
-        $callback($request,$this->_client);
+        $callback($req,$this->_client);
     }
 }

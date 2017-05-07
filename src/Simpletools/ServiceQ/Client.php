@@ -2,7 +2,6 @@
 
 namespace Simpletools\ServiceQ;
 
-use Exception;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 use PhpAmqpLib\Message\AMQPMessage;
 use Simpletools\ServiceQ\Driver\QDriver;
@@ -23,10 +22,68 @@ class Client
     protected $_callTimeout = 90;
     protected $_request;
 
+    protected $_serviceQRequest;
+
+    protected $_statusCode = 200;
+    protected $_payloadHeader;
+
+    protected static $_events = array();
+
     public function timeout($seconds)
     {
         $this->_callTimeout = $seconds;
         return $this;
+    }
+
+    public function status($code)
+    {
+        $this->_statusCode = $code;
+        return $this;
+    }
+
+    public function header($header)
+    {
+        $this->_payloadHeader = $header;
+        return $this;
+    }
+
+    protected function _prepareMessagePayload($msg)
+    {
+        $envelope               = array();
+        $mtime                  = microtime(true);
+
+        $envelope['header']     = array(
+            'status'        => $this->_statusCode,
+            'creator'       => $this->_getTopmostScript(),
+            'serviceQueue'  => $this->_queue,
+            'date'          => [
+                'atom'          => date(DATE_ATOM),
+                'mtimestamp'    => $mtime,
+                'timestamp'     => time()
+            ]
+        );
+
+        if($this->_serviceQRequest)
+        {
+            $envelope['header']['servingTimeMicroSec'] = $mtime - $this->_serviceQRequest->header->date->mtimestamp;
+        }
+
+        if($this->_payloadHeader)
+            $envelope['header'] = array_merge($envelope['header'],$this->_payloadHeader);
+
+        $envelope['body']    = $msg;
+
+        return json_encode($envelope);
+    }
+
+    protected function _getTopmostScript()
+    {
+        $backtrace = debug_backtrace(
+            defined("DEBUG_BACKTRACE_IGNORE_ARGS")
+                ? DEBUG_BACKTRACE_IGNORE_ARGS
+                : FALSE);
+        $top_frame = array_pop($backtrace);
+        return $top_frame['file'];
     }
 
     public function call()
@@ -45,12 +102,19 @@ class Client
         $this->_rpcResponse = null;
         $this->_rpcCorrId   = uniqid();
 
+        $properties = array(
+            'correlation_id' => $this->_rpcCorrId,
+            'reply_to' => $callback_queue
+        );
+
+        if(isset($args[1]) && is_array($args[1]))
+        {
+            $properties = array_merge($args[1],$properties);
+        }
+
         $msg = new AMQPMessage(
-            json_encode($args[0]),
-            array(
-                'correlation_id' => $this->_rpcCorrId,
-                'reply_to' => $callback_queue
-            )
+            $this->_prepareMessagePayload($args[0]),
+            $properties
         );
 
         $channel->basic_publish($msg, '', $this->_queue);
@@ -65,7 +129,16 @@ class Client
     public function _onRpcResponse($rep)
     {
         if($rep->get('correlation_id') == $this->_rpcCorrId) {
-            $this->_rpcResponse = json_decode($rep->body);
+
+            $response           = json_decode($rep->body);
+            $this->_rpcResponse = $response;
+
+            if(substr(@$this->_rpcResponse->header->status,0,1)!=2)
+            {
+                $e = new ResponseException("",@$this->_rpcResponse->header->status);
+                $e->setResponse($response);
+                throw $e;
+            }
         }
     }
 
@@ -76,10 +149,12 @@ class Client
         {
             if(!$this->_type) {
 
+                $msg = $this->_prepareMessagePayload($args[0]);
+
                 if(isset($args[1])) {
-                    $msg = new AMQPMessage(json_encode($args[0]),$args[1]);
+                    $msg = new AMQPMessage($msg,$args[1]);
                 }else{
-                    $msg = new AMQPMessage(json_encode($args[0]));
+                    $msg = new AMQPMessage($msg);
                 }
 
                 $this->_channel->queue_declare($this->_queue, false, true, false, false);
@@ -122,6 +197,16 @@ class Client
     {
         if($this->_request) unset($this->_request);
         $this->_request = $request;
+
+        return $this;
+    }
+
+    public function setServiceQRequest($serviceQRequest)
+    {
+        if($this->_serviceQRequest) unset($this->_serviceQRequest);
+        $this->_serviceQRequest = $serviceQRequest;
+
+        return $this;
     }
 
     public function reply($msg)
@@ -140,7 +225,7 @@ class Client
         {
             $options['correlation_id'] = $req->get('correlation_id');
         }
-        $msg = new AMQPMessage(json_encode($msg), $options);
+        $msg = new AMQPMessage($this->_prepareMessagePayload($msg), $options);
         $req->delivery_info['channel']->basic_publish($msg, '', $req->get('reply_to'));
 
         return $this;
@@ -156,7 +241,7 @@ class Client
 
     public function publishFanout($msg,$properties=null)
     {
-        $msg = new AMQPMessage($msg,$properties);
+        $msg = new AMQPMessage($this->_prepareMessagePayload($msg),$properties);
 
         $this->_channel->exchange_declare($this->_queue,'fanout',false,false,false);
         $this->_channel->basic_publish($msg, $this->_queue);
@@ -164,7 +249,7 @@ class Client
 
     public function publishTopic($topic,$msg,$properties=null)
     {
-        $msg = new AMQPMessage($msg,$properties);
+        $msg = new AMQPMessage($this->_prepareMessagePayload($msg),$properties);
 
         $this->_channel->exchange_declare($this->_queue,'topic',false,false,false);
         $this->_channel->basic_publish($msg, $this->_queue, $topic);
@@ -172,7 +257,7 @@ class Client
 
     public function publishDirect($key,$msg,$properties=null)
     {
-        $msg = new AMQPMessage($msg,$properties);
+        $msg = new AMQPMessage($this->_prepareMessagePayload($msg),$properties);
 
         $this->_channel->exchange_declare($this->_queue,'direct',false,false,false);
         $this->_channel->basic_publish($msg, $this->_queue, $key);
@@ -211,6 +296,19 @@ class Client
     public static function queueTypeMapping($queueTypeMapping)
     {
         self::$_queueTypeMapping = $queueTypeMapping;
+    }
+
+    public static function onRequestReceived($callable)
+    {
+        if(!is_callable($callable))
+            throw new Exception('Your onRequestReceived function is not callable');
+
+        self::$_events['onRequestReceived'] = $callable;
+    }
+
+    public static function getEventCallback($callbackName)
+    {
+        return isset(self::$_events[$callbackName]) ? self::$_events[$callbackName] : false;
     }
 
     public static function service($queue)
