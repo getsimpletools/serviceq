@@ -29,6 +29,8 @@ class Client
 
     protected static $_events = array();
 
+    protected $_topic;
+
     public function timeout($seconds)
     {
         $this->_callTimeout = $seconds;
@@ -180,13 +182,25 @@ class Client
 
     public function serve(Callable $callback)
     {
-        $this->_channel->queue_declare($this->_queue, false, true, false, false);
-
-        $this->_channel->basic_qos(null, 1, null);
-
         $response = new CallResponse($callback,$this);
 
-        $this->_channel->basic_consume($this->_queue, '', false, false, false, false, array($response,'respond'));
+        if($this->_topic)
+        {
+            $this->_channel->exchange_declare($this->_queue, 'topic', false, false, false);
+            $res = $this->_channel->queue_declare("", false, false, true, false);
+            $queue_name = $res[0];
+
+            foreach($this->_topic as $topic)
+                $this->_channel->queue_bind($queue_name, $this->_queue, $topic);
+
+            $this->_channel->basic_consume($queue_name, '', false, true, false, false, array($response,'respond'));
+        }
+        else
+        {
+            $this->_channel->queue_declare($this->_queue, false, true, false, false);
+            $this->_channel->basic_qos(null, 1, null);
+            $this->_channel->basic_consume($this->_queue, '', false, false, false, false, array($response,'respond'));
+        }
 
         while(count($this->_channel->callbacks)) {
             $this->_channel->wait();
@@ -319,6 +333,15 @@ class Client
     public function type($type)
     {
         $this->_type = $type;
+
+        return $this;
+    }
+
+    public function topic($topic)
+    {
+        if(!is_array($topic)) $topic = [$topic];
+
+        $this->_topic = $topic;
 
         return $this;
     }
