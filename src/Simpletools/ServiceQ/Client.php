@@ -125,6 +125,11 @@ class Client
         );
 
         $channel->basic_publish($msg, '', $this->_queue);
+
+        $this
+            ->status(200)
+            ->meta(null);
+
         while(!$this->_rpcResponse)
         {
             $channel->wait(null,false,$this->_callTimeout);
@@ -191,6 +196,10 @@ class Client
                 $this->publishDirect($args[0],$args[1],@$args[2]);
             }
         }
+
+        $this
+            ->status(200)
+            ->meta(null);
     }
 
     public function serve(Callable $callback)
@@ -254,6 +263,10 @@ class Client
         }
         $msg = new AMQPMessage($this->_preparePayload($msg), $options);
         $req->delivery_info['channel']->basic_publish($msg, '', $req->get('reply_to'));
+
+        $this
+            ->status(200)
+            ->meta(null);
 
         return $this;
     }
