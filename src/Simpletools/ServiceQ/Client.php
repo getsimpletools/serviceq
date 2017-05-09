@@ -248,6 +248,8 @@ class Client
     public function reply($msg)
     {
         $req = $this->_request;
+        if(!$req) return $this;
+
         try {
             $req->get('reply_to');
             $req->get('correlation_id');
