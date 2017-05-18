@@ -3,6 +3,7 @@
 namespace Simpletools\ServiceQ;
 
 use PhpAmqpLib\Connection\AMQPStreamConnection;
+use PhpAmqpLib\Connection\AMQPSSLConnection;
 use PhpAmqpLib\Message\AMQPMessage;
 use Simpletools\ServiceQ\Driver\QDriver;
 
@@ -314,13 +315,42 @@ class Client
 
         $settings = $driver->getSettings();
 
-        $this->_connection = new AMQPStreamConnection(
-            @$settings['host'],
-            @$settings['port'],
-            @$settings['username'],
-            @$settings['password'],
-            isset($settings['vhost']) ? $settings['vhost'] : '/'
-        );
+        $host = explode('://',@$settings['host']);
+        if(!isset($host[1]))
+        {
+            $host['proto']  = 'ampqs';
+            $host['host']   = $host[0];
+        }
+        else
+        {
+            $host['proto']  = $host[0];
+            if(!$host['proto']) $host['proto'] = 'ampqs';
+            $host['host']   = $host[1];
+        }
+
+        /*
+         * Default protocol - SSL
+         */
+        if($host['proto']=='ampqs')
+        {
+            $this->_connection = new AMQPSSLConnection(
+                $host['host'],
+                @$settings['port'],
+                @$settings['username'],
+                @$settings['password'],
+                isset($settings['vhost']) ? $settings['vhost'] : '/'
+            );
+        }
+        else
+        {
+            $this->_connection = new AMQPStreamConnection(
+                $host['host'],
+                @$settings['port'],
+                @$settings['username'],
+                @$settings['password'],
+                isset($settings['vhost']) ? $settings['vhost'] : '/'
+            );
+        }
 
         $this->_channel = $this->_connection->channel();
         $this->_queue = $queue;
