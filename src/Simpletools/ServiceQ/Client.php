@@ -315,10 +315,11 @@ class Client
         $settings = $driver->getSettings();
 
         $this->_connection = new AMQPStreamConnection(
-            $settings['host'],
-            $settings['port'],
-            $settings['username'],
-            $settings['password']
+            @$settings['host'],
+            @$settings['port'],
+            @$settings['username'],
+            @$settings['password'],
+            isset($settings['vhost']) ? $settings['vhost'] : '/'
         );
 
         $this->_channel = $this->_connection->channel();
