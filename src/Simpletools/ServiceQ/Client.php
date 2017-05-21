@@ -232,15 +232,19 @@ class Client
         }
         catch(\Exception $e)
         {
-            $bindings = Client::getBindings('onException');
-            if($bindings)
-            {
-                foreach($bindings as $bind) {
-                    $bind($e, $this);
-                }
-            }
-
+            $this->_runExceptionBinders($e);
             throw $e;
+        }
+    }
+
+    protected function _runExceptionBinders($e)
+    {
+        $bindings = Client::getBindings('onException');
+        if($bindings)
+        {
+            foreach($bindings as $bind) {
+                $bind($e, $this);
+            }
         }
     }
 
@@ -345,31 +349,36 @@ class Client
         /*
          * Default protocol - SSL
          */
-        if(isset($host['sslOptions']) && $host['proto']=='ampqs')
-        {
-            if(!is_array($host['sslOptions']))
-            {
-                throw new Exception('sslOptions should be an array type');
-            }
 
-            $this->_connection = new AMQPSSLConnection(
-                $host['host'],
-                @$settings['port'],
-                @$settings['username'],
-                @$settings['password'],
-                isset($settings['vhost']) ? $settings['vhost'] : '/',
-                $host['sslOptions']
-            );
+        try {
+            if (isset($host['sslOptions']) && $host['proto'] == 'ampqs') {
+                if (!is_array($host['sslOptions'])) {
+                    throw new Exception('sslOptions should be an array type');
+                }
+
+                $this->_connection = new AMQPSSLConnection(
+                    $host['host'],
+                    @$settings['port'],
+                    @$settings['username'],
+                    @$settings['password'],
+                    isset($settings['vhost']) ? $settings['vhost'] : '/',
+                    $host['sslOptions']
+                );
+            } else {
+                $this->_connection = new AMQPStreamConnection(
+                    $host['host'],
+                    @$settings['port'],
+                    @$settings['username'],
+                    @$settings['password'],
+                    isset($settings['vhost']) ? $settings['vhost'] : '/'
+                );
+            }
         }
-        else
+        catch(\Exception $e)
         {
-            $this->_connection = new AMQPStreamConnection(
-                $host['host'],
-                @$settings['port'],
-                @$settings['username'],
-                @$settings['password'],
-                isset($settings['vhost']) ? $settings['vhost'] : '/'
-            );
+            $this->_runExceptionBinders($e);
+
+            throw $e;
         }
 
         $this->_channel = $this->_connection->channel();
