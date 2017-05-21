@@ -225,8 +225,22 @@ class Client
             $this->_channel->basic_consume($this->_queue, '', false, false, false, false, array($response,'respond'));
         }
 
-        while(count($this->_channel->callbacks)) {
-            $this->_channel->wait();
+        try {
+            while (count($this->_channel->callbacks)) {
+                $this->_channel->wait();
+            }
+        }
+        catch(\Exception $e)
+        {
+            $bindings = Client::getBindings('onException');
+            if($bindings)
+            {
+                foreach($bindings as $bind) {
+                    $bind($e, $this);
+                }
+            }
+
+            throw $e;
         }
     }
 
@@ -331,14 +345,20 @@ class Client
         /*
          * Default protocol - SSL
          */
-        if($host['proto']=='ampqs')
+        if(isset($host['sslOptions']) && $host['proto']=='ampqs')
         {
+            if(!is_array($host['sslOptions']))
+            {
+                throw new Exception('sslOptions should be an array type');
+            }
+
             $this->_connection = new AMQPSSLConnection(
                 $host['host'],
                 @$settings['port'],
                 @$settings['username'],
                 @$settings['password'],
-                isset($settings['vhost']) ? $settings['vhost'] : '/'
+                isset($settings['vhost']) ? $settings['vhost'] : '/',
+                $host['sslOptions']
             );
         }
         else
