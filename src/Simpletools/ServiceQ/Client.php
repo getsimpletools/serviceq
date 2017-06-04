@@ -30,6 +30,46 @@ class Client
     protected $_payloadStatus = 200;
     protected $_payloadMeta;
 
+    protected $_collectionChannels = array();
+    protected $_collectionResponses = array();
+
+    /*
+     * Times are in milliseconds
+     * set to null to keep them till delivered - no expiration
+     */
+    protected $_perMessageTtl                       = null;
+    protected static $_S_perMessageTtl              = null;
+
+    /*
+     * In theory should be instant but might take couple microseconds before sending message and starting to listen
+     * hence default is being set as 1sec.
+     */
+    protected $_perReplyMessageTtl                  = 1000;
+    protected static $_S_perReplyMessageTtl         = 1000;
+
+    /*
+     * Dispatch / Collect assumes work in the mean time but channel is open almost immediately after sending
+     * message therefore virtually making it always delivered but in future we might move it to only open channel after
+     * collect method is triggered() hence defaults to 60sec.
+     */
+    protected $_perDispatchReplyMessageTtl          = 60000;
+    protected static $_S_perDispatchReplyMessageTtl = 60000;
+
+    public static function ttl($settings)
+    {
+        if(isset($settings['message'])) {
+            self::$_S_perMessageTtl                 = $settings['message'];
+        }
+
+        if(isset($settings['reply'])) {
+            self::$_S_perReplyMessageTtl            = $settings['reply'];
+        }
+
+        if(isset($settings['collect'])) {
+            self::$_S_perDispatchReplyMessageTtl    = $settings['collect'];
+        }
+    }
+
     public function timeout($seconds)
     {
         $this->_callTimeout = $seconds;
@@ -48,7 +88,7 @@ class Client
         return $this;
     }
 
-    protected function _preparePayload($msg,$etc=array())
+    protected function _preparePayload($msg,$method,$etc=array())
     {
         $payload                = array();
         $mTime                  = microtime(true);
@@ -59,11 +99,13 @@ class Client
         $payload['meta']        = array(
             'creator'               => $this->_getTopmostScript(),
             'queue'                 => ['name'=>$this->_queue],
+            'method'                => $method,
             'date'                  => [
                 'atom'                  => date(DATE_ATOM),
                 'mtimestamp'            => $mTime,
                 'timestamp'             => time()
-            ]
+            ],
+
         );
 
         if(isset($etc['topic']))
@@ -94,12 +136,103 @@ class Client
         return $top_frame['file'];
     }
 
+    protected function _preparePayloadProperties($properties,$correlationId=null,$replyTo=null)
+    {
+        $props = array();
+
+        if($correlationId)
+        {
+            $props['correlation_id'] = $correlationId;
+        }
+
+        if($replyTo)
+        {
+            $props['reply_to'] = $replyTo;
+        }
+
+        if(is_array($properties))
+        {
+            if(isset($properties['correlation_id']))
+                unset($properties['correlation_id']);
+
+            if(isset($properties['reply_to']))
+                unset($properties['reply_to']);
+
+            $props = array_merge($props,$properties);
+        }
+
+        if(!isset($props['expiration']) && is_int($this->_perMessageTtl))
+        {
+            $props['expiration'] = $this->_perMessageTtl;
+        }
+
+        return $props;
+    }
+
+    public function dispatch()
+    {
+        $args = func_get_args();
+
+        $channelId = uniqid();
+        $this->_collectionChannels[$channelId] = $channel = $this->_connection->channel();
+
+        list($callback_queue, ,) = $channel->queue_declare("", false, false, true, false);
+
+        $payload    = $this->_preparePayload($args[0],'DISPATCH');
+        $properties = $this->_preparePayloadProperties(@$args[1],$channelId,$callback_queue);
+
+        $channel->basic_publish(new AMQPMessage(
+            $payload, $properties
+        ), '', $this->_queue);
+
+        $channel->basic_consume(
+            $callback_queue, '', false, false, false, false,
+            array($this,'_collector')
+        );
+
+        return $channelId;
+    }
+
+    public function _collector($res)
+    {
+        $id = $res->get('correlation_id');
+
+        $response               = json_decode($res->body);
+        $this->_collectionResponses[$id] =  $response;
+        $this->_checkResponse($response);
+    }
+
+    public function collect()
+    {
+        $args = func_get_args();
+        $channelId=@$args[0];
+        if(!$channelId)
+        {
+            $channelId = key($this->_collectionChannels);
+        }
+
+        if(!isset($this->_collectionChannels[$channelId]))
+        {
+            throw new Exception('Provided collection id does not exists');
+        }
+
+        $this
+            ->status(200)
+            ->meta(null);
+
+        $this->_collectionChannels[$channelId]->wait(null,false,$this->_callTimeout);
+        $this->_collectionChannels[$channelId]->close();
+
+        unset($this->_collectionChannels[$channelId]);
+
+        return isset($this->_collectionResponses[$channelId]) ? $this->_collectionResponses[$channelId] : null;
+    }
+
     public function call()
     {
         $args = func_get_args();
 
         $channel = $this->_connection->channel();
-
         list($callback_queue, ,) = $channel->queue_declare("", false, false, true, false);
 
         $channel->basic_consume(
@@ -110,18 +243,10 @@ class Client
         $this->_rpcResponse = null;
         $this->_rpcCorrId   = uniqid();
 
-        $properties = array(
-            'correlation_id' => $this->_rpcCorrId,
-            'reply_to' => $callback_queue
-        );
-
-        if(isset($args[1]) && is_array($args[1]))
-        {
-            $properties = array_merge($args[1],$properties);
-        }
+        $properties = $this->_preparePayloadProperties(@$args[1],$this->_rpcCorrId,$callback_queue);
 
         $msg = new AMQPMessage(
-            $this->_preparePayload($args[0]),
+            $this->_preparePayload($args[0],'CALL'),
             $properties
         );
 
@@ -146,20 +271,25 @@ class Client
             $response           = json_decode($rep->body);
             $this->_rpcResponse = $response;
 
-            if(substr(@$this->_rpcResponse->status,0,1)!=2)
+            $this->_checkResponse($response);
+        }
+    }
+
+    protected function _checkResponse($response)
+    {
+        if(substr(@$response->status,0,1)!=2)
+        {
+            $e = new ResponseException("",@$response->status);
+            $e->setResponse($response);
+
+            $bindings = Client::getBindings('onResponseException');
+
+            foreach($bindings as $bind)
             {
-                $e = new ResponseException("",@$this->_rpcResponse->status);
-                $e->setResponse($response);
-
-                $bindings = Client::getBindings('onResponseException');
-
-                foreach($bindings as $bind)
-                {
-                    $bind($e,$this);
-                }
-
-                throw $e;
+                $bind($e,$this);
             }
+
+            throw $e;
         }
     }
 
@@ -168,15 +298,12 @@ class Client
         $args = func_get_args();
         if(count($args)===1)
         {
-            if(!$this->_type) {
-
-                $msg = $this->_preparePayload($args[0]);
-
-                if(isset($args[1])) {
-                    $msg = new AMQPMessage($msg,$args[1]);
-                }else{
-                    $msg = new AMQPMessage($msg);
-                }
+            if(!$this->_type)
+            {
+                $msg = new AMQPMessage(
+                    $this->_preparePayload($args[0],'PUBLISH'),
+                    $this->_preparePayloadProperties(@$args[1])
+                );
 
                 $this->_channel->queue_declare($this->_queue, false, true, false, false);
                 $this->_channel->basic_publish($msg, '', $this->_queue);
@@ -264,7 +391,7 @@ class Client
         return $this;
     }
 
-    public function reply($msg)
+    public function reply($msg,$properties=array())
     {
         $req = $this->_request;
         if(!$req) return $this;
@@ -275,14 +402,31 @@ class Client
         }
         catch(\Exception $e){return $this;}
 
-        $options = [];
-
+        $correlation_id = null;
 
         if($req->get('correlation_id'))
         {
-            $options['correlation_id'] = $req->get('correlation_id');
+            $correlation_id = $req->get('correlation_id');
         }
-        $msg = new AMQPMessage($this->_preparePayload($msg), $options);
+
+        if(!isset($properties['expiration']))
+        {
+            $properties['expiration'] = $this->_perReplyMessageTtl;
+
+            $body = json_decode($req->body);
+            if(@$body->meta->method == "DISPATCH")
+            {
+                $properties['expiration'] = $this->_perDispatchReplyMessageTtl;
+            }
+        }
+
+        $properties = $this->_preparePayloadProperties($properties,$correlation_id);
+
+        $msg = new AMQPMessage(
+            $this->_preparePayload($msg,'REPLY'),
+            $properties
+        );
+
         $req->delivery_info['channel']->basic_publish($msg, '', $req->get('reply_to'));
 
         $this
@@ -302,7 +446,10 @@ class Client
 
     public function publishFanout($msg,$properties=null)
     {
-        $msg = new AMQPMessage($this->_preparePayload($msg),$properties);
+        $msg = new AMQPMessage(
+            $this->_preparePayload($msg,'PUBLISH_FANOUT'),
+            $this->_preparePayloadProperties($properties)
+        );
 
         $this->_channel->exchange_declare($this->_queue,'fanout',false,false,false);
         $this->_channel->basic_publish($msg, $this->_queue);
@@ -310,7 +457,10 @@ class Client
 
     public function publishTopic($topic,$msg,$properties=null)
     {
-        $msg = new AMQPMessage($this->_preparePayload($msg,['topic'=>$topic]),$properties);
+        $msg = new AMQPMessage(
+            $this->_preparePayload($msg,'PUBLISH_TOPIC',['topic'=>$topic]),
+            $this->_preparePayloadProperties($properties)
+        );
 
         $this->_channel->exchange_declare($this->_queue,'topic',false,false,false);
         $this->_channel->basic_publish($msg, $this->_queue, $topic);
@@ -318,7 +468,10 @@ class Client
 
     public function publishDirect($key,$msg,$properties=null)
     {
-        $msg = new AMQPMessage($this->_preparePayload($msg),$properties);
+        $msg = new AMQPMessage(
+            $this->_preparePayload($msg,'PUBLISH_DIRECT'),
+            $this->_preparePayloadProperties($properties)
+        );
 
         $this->_channel->exchange_declare($this->_queue,'direct',false,false,false);
         $this->_channel->basic_publish($msg, $this->_queue, $key);
@@ -388,6 +541,10 @@ class Client
         {
             $this->type(self::$_queueTypeMapping[$queue]);
         }
+
+        $this->_perMessageTtl               = self::$_S_perMessageTtl;
+        $this->_perReplyMessageTtl          = self::$_S_perReplyMessageTtl;
+        $this->_perDispatchReplyMessageTtl  = self::$_S_perDispatchReplyMessageTtl;
     }
 
     public static function driver($driver)
@@ -451,6 +608,11 @@ class Client
 
     public function __destruct()
     {
+        foreach($this->_collectionChannels as $channel)
+        {
+            $channel->close();
+        }
+
         $this->_channel->close();
         $this->_connection->close();
     }
