@@ -220,16 +220,31 @@ class Client
             ->status(200)
             ->meta(null);
 
-        $this->_collectionChannels[$channelId]->wait(null,false,$this->_callTimeout);
+        $exception = null;
+
+        try {
+            $this->_collectionChannels[$channelId]->wait(null, false, $this->_callTimeout);
+        }
+        catch(\Exception $e)
+        {
+            $exception = $e;
+        }
+
         $this->_collectionChannels[$channelId]->close();
 
         unset($this->_collectionChannels[$channelId]);
+        $response = isset($this->_collectionResponses[$channelId]) ? $this->_collectionResponses[$channelId] : null;
+        unset($this->_collectionResponses[$channelId]);
 
-        return isset($this->_collectionResponses[$channelId]) ? $this->_collectionResponses[$channelId] : null;
+        if($exception) throw $exception;
+
+        return $response;
     }
 
     public function call()
     {
+        $this->_rpcResponse = null;
+
         $args = func_get_args();
 
         $channel = $this->_connection->channel();
@@ -256,22 +271,27 @@ class Client
             ->status(200)
             ->meta(null);
 
-        while(!$this->_rpcResponse)
+        try {
+            while (!$this->_rpcResponse) {
+                $channel->wait(null, false, $this->_callTimeout);
+            }
+        }
+        catch(\Exception $e)
         {
-            $channel->wait(null,false,$this->_callTimeout);
+            $channel->close();
+            throw $e;
         }
 
+        $channel->close();
         return $this->_rpcResponse;
     }
 
     public function _onRpcResponse($rep)
     {
-        if($rep->get('correlation_id') == $this->_rpcCorrId) {
-
-            $response           = json_decode($rep->body);
-            $this->_rpcResponse = $response;
-
-            $this->_checkResponse($response);
+        if($rep->get('correlation_id') == $this->_rpcCorrId)
+        {
+            $this->_rpcResponse = json_decode($rep->body);
+            $this->_checkResponse($this->_rpcResponse);
         }
     }
 
@@ -438,8 +458,13 @@ class Client
 
     public function acknowledge()
     {
+        if(!$this->_request) throw new Exception("This message has been already acknowledged",409);
+
         $req = $this->_request;
         $req->delivery_info['channel']->basic_ack($req->delivery_info['delivery_tag']);
+
+        unset($this->_request);
+        $this->_request = null;
 
         return $this;
     }
