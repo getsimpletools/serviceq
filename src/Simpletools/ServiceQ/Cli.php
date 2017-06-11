@@ -5,9 +5,9 @@ namespace Simpletools\ServiceQ;
 class Cli
 {
     const INFO                  = "\e[0m"; //default colors
-    const ERROR                 = "\e[41m\e[37m"; //red background, white font
+    const ERROR                 = "\e[41m\e[37m\e[1m"; //red background, white font
     const WARNING               = "\e[43m\e[30m"; //yellow background, black font
-    const SUCCESS               = "\e[42m\e[30m"; //green background, black font
+    const SUCCESS               = "\e[42m\e[37m\e[1m"; //green background, white font
     const NOTE                  = "\e[44m\e[37m"; //blue background, white font
 
     const TEXT_COLOR_BLACK      = "\e[30m";
@@ -18,6 +18,8 @@ class Cli
     const TEXT_COLOR_YELLOW     = "\e[33m";
     const TEXT_COLOR_WHITE      = "\e[37m";
     const TEXT_COLOR_GREY       = "\e[0;37m";
+
+    const TEXT_BOLD             = "\e[1m";
 
     const BG_COLOR_BLACK        = "\e[40m";
     const BG_COLOR_RED          = "\e[41m";
