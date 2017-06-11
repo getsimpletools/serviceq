@@ -641,4 +641,16 @@ class Client
         $this->_channel->close();
         $this->_connection->close();
     }
+
+    protected $_cli;
+
+    public function cli()
+    {
+        if(!$this->_cli)
+        {
+            $this->_cli = new Cli();
+        }
+
+        return $this->_cli;
+    }
 }
