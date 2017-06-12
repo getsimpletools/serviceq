@@ -62,7 +62,7 @@ class Cli
         $this->_syslog = false;
     }
 
-    public function print($msg,$status=self::INFO)
+    public function msg($msg,$status=self::INFO)
     {
         $line = array();
 
@@ -92,31 +92,31 @@ class Cli
     public function info($msg)
     {
         $this->syslog(LOG_INFO,$msg);
-        return $this->print($msg);
+        return $this->msg($msg);
     }
 
     public function debug($msg)
     {
         $this->syslog(LOG_DEBUG,$msg);
-        return $this->print($msg,self::NOTE);
+        return $this->msg($msg,self::NOTE);
     }
 
     public function error($msg)
     {
         $this->syslog(LOG_ERR,$msg);
-        return $this->print($msg,self::ERROR);
+        return $this->msg($msg,self::ERROR);
     }
 
     public function warning($msg)
     {
         $this->syslog(LOG_WARNING,$msg);
-        return $this->print($msg,self::WARNING);
+        return $this->msg($msg,self::WARNING);
     }
 
     public function success($msg)
     {
         $this->syslog(LOG_INFO,$msg);
-        return $this->print($msg,self::SUCCESS);
+        return $this->msg($msg,self::SUCCESS);
     }
 
     public function prefix($prefix)
