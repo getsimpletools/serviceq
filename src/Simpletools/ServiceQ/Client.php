@@ -176,7 +176,7 @@ class Client
         $channelId = uniqid();
         $this->_collectionChannels[$channelId] = $channel = $this->_connection->channel();
 
-        list($callback_queue, ,) = $channel->queue_declare("", false, false, true, false);
+        list($callback_queue, ,) = $channel->queue_declare("", false, false, true, true);
 
         $payload    = $this->_preparePayload($args[0],'DISPATCH');
         $properties = $this->_preparePayloadProperties(@$args[1],$channelId,$callback_queue);
@@ -248,7 +248,7 @@ class Client
         $args = func_get_args();
 
         $channel = $this->_connection->channel();
-        list($callback_queue, ,) = $channel->queue_declare("", false, false, true, false);
+        list($callback_queue, ,) = $channel->queue_declare("", false, false, true, true);
 
         $channel->basic_consume(
             $callback_queue, '', false, false, false, false,
@@ -357,7 +357,7 @@ class Client
         if($this->_topic)
         {
             $this->_channel->exchange_declare($this->_queue, 'topic', false, false, false);
-            $res = $this->_channel->queue_declare("", false, false, true, false);
+            $res = $this->_channel->queue_declare("", false, false, true, true);
             $queue_name = $res[0];
 
             foreach($this->_topic as $topic)
