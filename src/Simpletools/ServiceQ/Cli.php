@@ -159,6 +159,7 @@ class Cli
         {
             $length = strlen($text)+2;
             $parts = floor(($width - $length)/2);
+            if($parts<0) $parts = 0;
 
             print $colors.str_repeat($string,$parts).' '.$text.' '.str_repeat($string,$parts).self::COLOR_OFF.PHP_EOL;
         } else
