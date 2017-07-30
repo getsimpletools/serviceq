@@ -361,9 +361,9 @@ class Client
 
                     $this->_cli->line();
                     if(!$exception)
-                        $this->_cli->success('Response status: '.$res->status);
+                        $this->_cli->success('Response status: '.$res->status.' '.$res->statusMsg);
                     else
-                        $this->_cli->error('Response status: '.$res->status);
+                        $this->_cli->error('Response status: '.$res->status.' '.$res->statusMsg);
 
                     $this->_cli->info('Service queue: '.($this->_queue));
                     $this->_cli->info('Time taken (sec): '.($res->meta->servingTimeSec));
@@ -412,9 +412,9 @@ class Client
 
                     $this->_cli->line();
                     if(!$exception)
-                        $this->_cli->success('Response status: '.$res->status);
+                        $this->_cli->success('Response status: '.$res->status.' '.$res->statusMsg);
                     else
-                        $this->_cli->error('Response status: '.$res->status);
+                        $this->_cli->error('Response status: '.$res->status.' '.$res->statusMsg);
 
                     $this->_cli->info('Service queue: '.($this->_queue));
                     $this->_cli->info('Time taken (sec): '.($res->meta->servingTimeSec));
