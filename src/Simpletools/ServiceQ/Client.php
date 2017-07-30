@@ -115,7 +115,7 @@ class Client
 
         if($this->_serviceQRequest)
         {
-            $payload['meta']['servingTimeMicroSec'] = $mTime - $this->_serviceQRequest->meta->date->mtimestamp;
+            $payload['meta']['servingTimeSec'] = $mTime - $this->_serviceQRequest->meta->date->mtimestamp;
         }
 
         if($this->_payloadMeta)

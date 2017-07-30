@@ -37,6 +37,8 @@ class Cli
     protected static $_S_syslog = false;
     protected $_syslog          = false;
 
+    protected $_decorator;
+
     public function __construct()
     {
         $this->_syslog = self::$_S_syslog;
@@ -73,6 +75,12 @@ class Cli
         }
 
         $line[] = $status;
+
+        if(is_callable($this->_decorator))
+        {
+            $msg = call_user_func($this->_decorator,$msg);
+        }
+
         $line[] = $msg;
         $line[] = "\e[0m";
 
@@ -146,6 +154,11 @@ class Cli
         $this->_suffix = self::COLOR_OFF.' '.$colors.$suffix.self::COLOR_OFF;
 
         return $this;
+    }
+
+    public function decorator(callable $decorator)
+    {
+        $this->_decorator = $decorator;
     }
 
     public function line($text="")
