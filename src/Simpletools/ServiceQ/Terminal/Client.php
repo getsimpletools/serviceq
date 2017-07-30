@@ -16,6 +16,7 @@ class Client
     protected $_services = array();
 
     protected $_historyFile;
+    protected $_ranCommands = array();
 
     protected $_commands = array();
     protected $_longCommands = array(
@@ -287,6 +288,8 @@ class Client
             {
                 case ($cmd[0]=='service' || $cmd[0]=='s' || $cmd[0]=='use' || $cmd[0]=='queue' || $cmd[0]=='q'):
 
+                    $this->_ranCommands['service'] = 1;
+
                     if(!isset($cmd[1]))
                     {
                         if(!$this->_queue)
@@ -304,6 +307,8 @@ class Client
 
                 case ($cmd[0] == 'timeout' || $cmd[0] == 't'):
 
+                    $this->_ranCommands['timeout'] = 1;
+
                     if(!isset($cmd[1]))
                     {
                         $this->_cli->debug('Default timeout set to: '.$this->_timeout.' sec.');
@@ -316,6 +321,8 @@ class Client
                     break;
 
                 case ($cmd[0] == 'publish' || $cmd[0] == 'p'):
+
+                    $this->_ranCommands['publish'] = 1;
 
                     $body = json_decode(@$cmd[1]);
                     $this->_checkCallableCommandArgs(@$cmd[1],$body);
@@ -344,6 +351,7 @@ class Client
 
                     try {
                         $res = $this->_services[$this->_queue]->timeout($this->_timeout)->call($body);
+                        $this->_ranCommands['call'] = 1;
                     }
                     catch(ServiceQ\ResponseException $e)
                     {
@@ -366,6 +374,8 @@ class Client
                     break;
 
                 case ($cmd[0] == 'dispatch' || $cmd[0] == 'dp'):
+
+                    $this->_ranCommands['dispatch'] = 1;
 
                     $body = json_decode(@$cmd[1]);
                     $this->_checkCallableCommandArgs(@$cmd[1],$body);
@@ -392,6 +402,7 @@ class Client
 
                     try {
                         $res = $this->_services[$this->_queue]->timeout($this->_timeout)->collect($requestId);
+                        $this->_ranCommands['collect'] = 1;
                     }
                     catch(ServiceQ\ResponseException $e)
                     {
@@ -418,9 +429,13 @@ class Client
                     $this->_cli->clear();
                     break;
 
-                case 'roar':
+                case ($cmd[0] == 'roar' && count($this->_ranCommands)>5):
                     $this->_cli->clear();
                     $this->_cli->lion();
+                    break;
+
+                case ($cmd[0] == 'roar'):
+                    throw new \Exception('Unrecognised method: '.$cmd[0]);
                     break;
 
                 case ($cmd[0] == 'clear-history'):
