@@ -74,7 +74,7 @@ class Client
     {
         $cli    = $this->_cli = new Cli();
         $cli->decorator(function($msg){
-            return 'ServiceQ>* '.$msg.' ';
+            return ''.$msg.'';
         });
 
         $options = getopt('',[
@@ -151,7 +151,8 @@ class Client
         unset($service);
 
         $cli->logo();
-        $cli->success("Connected");
+        $cli->success("Connected to $username@$host/$vhost");
+        echo PHP_EOL;
 
         $this->_historyFile = sys_get_temp_dir().'/'.'serviceq-terminal-'.$username.'-'.hash('sha256',($host.$password)).'.log';
         @readline_read_history($this->_historyFile);
@@ -324,10 +325,10 @@ class Client
 
                     $this->_services[$this->_queue]->timeout($this->_timeout)->publish($body);
 
+                    $this->_cli->line();
                     $this->_cli->success('Published OK');
                     $this->_cli->info('Service queue: '.($this->_queue));
-
-                    echo PHP_EOL;
+                    $this->_cli->line();
 
                     break;
 
@@ -350,6 +351,7 @@ class Client
                         $res = $e->getResponse();
                     }
 
+                    $this->_cli->line();
                     if(!$exception)
                         $this->_cli->success('Response status: '.$res->status);
                     else
@@ -357,8 +359,9 @@ class Client
 
                     $this->_cli->info('Service queue: '.($this->_queue));
                     $this->_cli->info('Time taken (sec): '.($res->meta->servingTimeSec));
-                    $this->_cli->info('Response: ');
+                    $this->_cli->info('Body: ');
                     echo json_encode($res->body,JSON_PRETTY_PRINT).PHP_EOL.PHP_EOL;
+                    $this->_cli->line();
 
                     break;
 
@@ -372,11 +375,10 @@ class Client
 
                     $id = $this->_services[$this->_queue]->timeout($this->_timeout)->dispatch($body);
 
+                    $this->_cli->line();
                     $this->_cli->success('Request ID: '.$id);
                     $this->_cli->info('Service queue: '.($this->_queue));
-
-
-                    echo PHP_EOL;
+                    $this->_cli->line();
 
                    break;
 
@@ -397,6 +399,7 @@ class Client
                         $res = $e->getResponse();
                     }
 
+                    $this->_cli->line();
                     if(!$exception)
                         $this->_cli->success('Response status: '.$res->status);
                     else
@@ -406,6 +409,7 @@ class Client
                     $this->_cli->info('Time taken (sec): '.($res->meta->servingTimeSec));
                     $this->_cli->info('Response: ');
                     echo json_encode($res->body,JSON_PRETTY_PRINT).PHP_EOL.PHP_EOL;
+                    $this->_cli->line();
 
                     break;
 
@@ -431,7 +435,6 @@ class Client
 
                     break;
             }
-
         }
     }
 
