@@ -149,6 +149,8 @@ class Client
         }
 
         unset($service);
+
+        $cli->logo();
         $cli->success("Connected");
 
         $this->_historyFile = sys_get_temp_dir().'/'.'serviceq-terminal-'.$username.'-'.hash('sha256',($host.$password)).'.log';
