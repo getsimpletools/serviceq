@@ -8,12 +8,47 @@ use Simpletools\ServiceQ\Driver\QDriver;
 
 class Client
 {
-    protected $_prompt = '$ ';
+    protected $_prompt = 'ServiceQ<$ ';
     protected $_driver;
     protected $_cli;
 
     protected $_servicesDir;
     protected $_services = array();
+
+    protected $_historyFile;
+
+    protected $_commands = array();
+    protected $_longCommands = array(
+        'service',
+        'timeout',
+
+        'call',
+        'publish',
+        'dispatch',
+        'collect',
+
+        'clear',
+        'quit',
+
+        'clear-history'
+    );
+
+    protected $_exitCommands = array(
+        'quit','exit','bye','aloha'
+    );
+
+    protected $_aliasCommands = array(
+        'q','s',
+        't',
+
+        'c',
+        'p',
+        'dp',
+        'co',
+
+        'queue','use',
+        'clean'
+    );
 
     public function servicesDir($dir)
     {
@@ -22,6 +57,9 @@ class Client
 
     public function __construct($driver=null)
     {
+        $this->_commands = array_merge($this->_longCommands, $this->_aliasCommands, $this->_exitCommands, array('roar','lion'));
+        $this->_commands = array_unique($this->_commands);
+
         if($driver && !$driver instanceof QDriver)
         {
             throw new \Exception('Please specify a driver implementing QDriver interface');
@@ -36,7 +74,7 @@ class Client
     {
         $cli    = $this->_cli = new Cli();
         $cli->decorator(function($msg){
-            return '* '.$msg.' ';
+            return 'ServiceQ>* '.$msg.' ';
         });
 
         $options = getopt('',[
@@ -112,6 +150,9 @@ class Client
 
         unset($service);
         $cli->success("Connected");
+
+        $this->_historyFile = sys_get_temp_dir().'/'.'serviceq-terminal-'.$username.'-'.hash('sha256',($host.$password)).'.log';
+        @readline_read_history($this->_historyFile);
 
         readline_completion_function(array($this,'_completion'));
 
@@ -200,6 +241,10 @@ class Client
             $ret = $this->_scandir(trim(@$linebuffer[1],'/ '),$this->_servicesDir);
             return $ret;
         }
+        elseif(!isset($linebuffer[1]))
+        {
+            return $this->_longCommands;
+        }
     }
 
     protected $_timeout = 30;
@@ -229,14 +274,7 @@ class Client
         $command['cmd'] = '';
 
         $cmd = explode(' ',$cmd);
-        if(!in_array($cmd[0],[
-            'c','call',
-            'dp','dispatch',
-            'co','collect',
-            'p','publish',
-            't','timeout',
-            'q','queue','s','service','use']
-        ))
+        if(!in_array($cmd[0],$this->_commands))
         {
             throw new \Exception('Unrecognised method: '.$cmd[0]);
         }
@@ -322,6 +360,69 @@ class Client
 
                     break;
 
+                case ($cmd[0] == 'lion' || $cmd[0] == 'roar'):
+                    $this->_cli->clear();
+                    $this->_cli->lion();
+                    break;
+
+                case ($cmd[0] == 'dispatch' || $cmd[0] == 'dp'):
+
+                    $body = json_decode(@$cmd[1]);
+                    $this->_checkCallableCommandArgs(@$cmd[1],$body);
+
+                    if(!isset($this->_services[$this->_queue]))
+                        $this->_services[$this->_queue] = ServiceQ\Client::service($this->_queue);
+
+                    $id = $this->_services[$this->_queue]->timeout($this->_timeout)->dispatch($body);
+
+                    $this->_cli->success('Request ID: '.$id);
+                    $this->_cli->info('Service queue: '.($this->_queue));
+
+
+                    echo PHP_EOL;
+
+                   break;
+
+                case ($cmd[0] == 'collect' || $cmd[0] == 'co'):
+
+                    if(!isset($this->_services[$this->_queue]))
+                        $this->_services[$this->_queue] = ServiceQ\Client::service($this->_queue);
+
+                    $requestId = isset($cmd[1]) ?  $cmd[1]: null;
+                    $exception = false;
+
+                    try {
+                        $res = $this->_services[$this->_queue]->timeout($this->_timeout)->collect($requestId);
+                    }
+                    catch(ServiceQ\ResponseException $e)
+                    {
+                        $exception = true;
+                        $res = $e->getResponse();
+                    }
+
+                    if(!$exception)
+                        $this->_cli->success('Response status: '.$res->status);
+                    else
+                        $this->_cli->error('Response status: '.$res->status);
+
+                    $this->_cli->info('Service queue: '.($this->_queue));
+                    $this->_cli->info('Time taken (sec): '.($res->meta->servingTimeSec));
+                    $this->_cli->info('Response: ');
+                    echo json_encode($res->body,JSON_PRETTY_PRINT).PHP_EOL.PHP_EOL;
+
+                    break;
+
+                case ($cmd[0] == 'clear' || $cmd[0] == 'clean'):
+
+                    $this->_cli->clear();
+                    break;
+
+                case ($cmd[0] == 'clear-history'):
+
+                    readline_clear_history();
+                    $this->_cli->debug('History has been cleaned');
+                    break;
+
                 default:
 
                     $this->_cli->error('Support for command '.$cmd[0].' not released yet');
@@ -334,7 +435,7 @@ class Client
 
     public function _evalCommand($cmd)
     {
-        $cmd = $this->_parseCommand($cmd);
+        $this->_parseCommand($cmd);
     }
 
     public function readLine($prompt='',$addHistory=true)
@@ -354,8 +455,9 @@ class Client
             $line = readline($prompt);
         }
 
-        if($addHistory)
-            readline_add_history($line);
+        if($addHistory && $line && !in_array($line,$this->_exitCommands)) {
+                readline_add_history($line);
+        }
 
         return $line;
     }
@@ -384,5 +486,11 @@ class Client
             echo "\n";
             return $password;
         }
+    }
+
+    public function __destruct()
+    {
+        @touch($this->_historyFile);
+        @readline_write_history($this->_historyFile);
     }
 }
