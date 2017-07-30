@@ -57,7 +57,7 @@ class Client
 
     public function __construct($driver=null)
     {
-        $this->_commands = array_merge($this->_longCommands, $this->_aliasCommands, $this->_exitCommands, array('roar','lion'));
+        $this->_commands = array_merge($this->_longCommands, $this->_aliasCommands, $this->_exitCommands, array('roar'));
         $this->_commands = array_unique($this->_commands);
 
         if($driver && !$driver instanceof QDriver)
@@ -362,11 +362,6 @@ class Client
 
                     break;
 
-                case ($cmd[0] == 'lion' || $cmd[0] == 'roar'):
-                    $this->_cli->clear();
-                    $this->_cli->lion();
-                    break;
-
                 case ($cmd[0] == 'dispatch' || $cmd[0] == 'dp'):
 
                     $body = json_decode(@$cmd[1]);
@@ -417,6 +412,11 @@ class Client
                 case ($cmd[0] == 'clear' || $cmd[0] == 'clean'):
 
                     $this->_cli->clear();
+                    break;
+
+                case 'roar':
+                    $this->_cli->clear();
+                    $this->_cli->lion();
                     break;
 
                 case ($cmd[0] == 'clear-history'):
