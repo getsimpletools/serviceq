@@ -235,15 +235,10 @@ class Client
     {
         $files = scandir($haystack);
 
-        file_put_contents('/MyData/Workspace/debug.line',var_export(time().'---'.$haystack.'/'.$needle,true),FILE_APPEND);
-
         if($needle)
         {
             if(is_dir($haystack.'/'.$needle))
             {
-
-                file_put_contents('/MyData/Workspace/debug.line','#1',FILE_APPEND);
-
 
                 $files = scandir($haystack.'/'.$needle);
                 if($files)
@@ -253,15 +248,11 @@ class Client
             }
             elseif(stripos($needle,'/')===false)
             {
-                file_put_contents('/MyData/Workspace/debug.line','#2',FILE_APPEND);
-                file_put_contents('/MyData/Workspace/debug.line',var_export($files,true),FILE_APPEND);
-
                 $res = $this->_getMatchedPaths($files,$needle,$prefix);
                 return $res;
             }
             elseif(!$recursive)
             {
-                file_put_contents('/MyData/Workspace/debug.line','#3',FILE_APPEND);
                 $needle     = explode('/',$needle);
                 $prefix2    = array_pop($needle);
 
@@ -278,8 +269,6 @@ class Client
 
     protected function _completion($cmd,$position)
     {
-        file_put_contents('/MyData/Workspace/debug.line',var_export(time().' CMD: '.$cmd.PHP_EOL,true),FILE_APPEND);
-
 
         $argument = true;
 
@@ -288,8 +277,6 @@ class Client
             $argument = false;
         }
 
-        file_put_contents('/MyData/Workspace/debug.line','ARG: '.var_export($argument,true),FILE_APPEND);
-        file_put_contents('/MyData/Workspace/debug.line','POS: '.var_export($position,true),FILE_APPEND);
 
         if($argument && $this->_servicesDir)
         {
