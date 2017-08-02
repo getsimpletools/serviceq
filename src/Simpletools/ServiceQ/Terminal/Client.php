@@ -35,7 +35,17 @@ class Client
         'quit',
 
         'clear-history',
-        'collect-nowait'
+        'collect-nowait',
+
+        'dispatch-expires',
+        'call-expires',
+        'publish-expires'
+    );
+
+    protected $_expires = array(
+        'message'   => 0,
+        'dispatch'  => 60,
+        'reply'     => 1
     );
 
     protected $_exitCommands = array(
@@ -310,6 +320,14 @@ class Client
         }
     }
 
+    public function _getService()
+    {
+        if(!isset($this->_services[$this->_queue]))
+            $this->_services[$this->_queue] = ServiceQ\Client::service($this->_queue);
+
+        return $this->_services[$this->_queue];
+    }
+
     public function _parseCommand($cmd)
     {
         $command = array();
@@ -365,10 +383,7 @@ class Client
                     $body = json_decode(@$cmd[1]);
                     $this->_checkCallableCommandArgs(@$cmd[1],$body);
 
-                    if(!isset($this->_services[$this->_queue]))
-                        $this->_services[$this->_queue] = ServiceQ\Client::service($this->_queue);
-
-                    $this->_services[$this->_queue]->timeout($this->_timeout)->publish($body);
+                    $this->_getService()->timeout($this->_timeout)->publish($body);
 
                     $this->_cli->line();
                     $this->_cli->success('Published OK');
@@ -382,13 +397,10 @@ class Client
                     $body = json_decode(@$cmd[1]);
                     $this->_checkCallableCommandArgs(@$cmd[1],$body);
 
-                    if(!isset($this->_services[$this->_queue]))
-                        $this->_services[$this->_queue] = ServiceQ\Client::service($this->_queue);
-
                     $exception = false;
 
                     try {
-                        $res = $this->_services[$this->_queue]->timeout($this->_timeout)->call($body);
+                        $res = $this->_getService()->timeout($this->_timeout)->call($body);
                         $this->_ranCommands['call'] = 1;
                     }
                     catch(ServiceQ\ResponseException $e)
@@ -419,10 +431,7 @@ class Client
                     $body = json_decode(@$cmd[1]);
                     $this->_checkCallableCommandArgs(@$cmd[1],$body);
 
-                    if(!isset($this->_services[$this->_queue]))
-                        $this->_services[$this->_queue] = ServiceQ\Client::service($this->_queue);
-
-                    $id = $this->_services[$this->_queue]->timeout($this->_timeout)->dispatch($body);
+                    $id = $this->_getService()->timeout($this->_timeout)->dispatch($body);
 
                     $this->_cli->line();
                     $this->_cli->success('Request ID: '.$id);
@@ -433,14 +442,11 @@ class Client
 
                 case ($cmd[0] == 'collect' || $cmd[0] == 'co'):
 
-                    if(!isset($this->_services[$this->_queue]))
-                        $this->_services[$this->_queue] = ServiceQ\Client::service($this->_queue);
-
                     $requestId = isset($cmd[1]) ?  $cmd[1]: null;
                     $exception = false;
 
                     try {
-                        $res = $this->_services[$this->_queue]->timeout($this->_timeout)->collect($requestId);
+                        $res = $this->_getService()->timeout($this->_timeout)->collect($requestId);
                         $this->_ranCommands['collect'] = 1;
                     }
                     catch(ServiceQ\ResponseException $e)
@@ -466,16 +472,13 @@ class Client
 
                 case 'collect-nowait':
 
-                    if(!isset($this->_services[$this->_queue]))
-                        $this->_services[$this->_queue] = ServiceQ\Client::service($this->_queue);
-
                     $requestId = isset($cmd[1]) ?  $cmd[1]: null;
 
                     $exception = false;
 
                     try
                     {
-                        $res = $this->_services[$this->_queue]->collectNoWait($requestId);
+                        $res = $this->_getService()->collectNoWait($requestId);
                     }
                     catch(ServiceQ\ResponseException $e)
                     {
@@ -529,6 +532,50 @@ class Client
 
                     $this->connect();
                     $this->_cli->success('Reconnected');
+                    break;
+
+                case 'dispatch-expires':
+
+                    if(!isset($cmd[1]) OR !trim($cmd[1]))
+                    {
+                        $this->_cli->debug('Default dispatch expires set to: '.ServiceQ\Client::expires('dispatch').' sec.');
+                        break;
+                    }
+
+                    $expires = (float) $cmd[1];
+                    if(!$expires)
+                    {
+                        throw new \Exception('Default dispatch expires can\'t be set to 0sec');
+                        break;
+                    }
+
+                    $this->_cli->debug('Default dispatch expires has been changed to: '.(ServiceQ\Client::expires('dispatch',$expires)).' sec.');
+                    break;
+
+                case 'call-expires':
+
+                    if(!isset($cmd[1]) OR $cmd[1]==='')
+                    {
+                        $this->_cli->debug('Default call expires set to: '.(float) ServiceQ\Client::expires('call').' sec.');
+                        break;
+                    }
+
+                    $expires = (float) $cmd[1];
+
+                    $this->_cli->debug('Default call expires has been changed to: '.(float) (ServiceQ\Client::expires('call',$expires)).' sec.');
+                    break;
+
+                case 'publish-expires':
+
+                    if(!isset($cmd[1]) OR $cmd[1]==='')
+                    {
+                        $this->_cli->debug('Default publish expires set to: '.(float) ServiceQ\Client::expires('publish').' sec.');
+                        break;
+                    }
+
+                    $expires = (float) $cmd[1];
+
+                    $this->_cli->debug('Default publish expires has been changed to: '.(float) (ServiceQ\Client::expires('publish',$expires)).' sec.');
                     break;
 
                 default:

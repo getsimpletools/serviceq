@@ -35,41 +35,106 @@ class Client
     protected $_collectionResponses = array();
 
     /*
-     * Times are in milliseconds
+     * Times are in seconds
      * set to null to keep them till delivered - no expiration
      */
     protected $_perMessageTtl                       = null;
     protected static $_S_perMessageTtl              = null;
 
     /*
+     * Times are in seconds
+     * set to null to keep them till delivered - no expiration
+     */
+    protected $_perPublishMessageTtl                = null;
+    protected static $_S_perPublishMessageTtl       = null;
+
+    /*
      * In theory should be instant but might take couple microseconds before sending message and starting to listen
      * hence default is being set as 1sec.
      */
-    protected $_perReplyMessageTtl                  = 1000;
-    protected static $_S_perReplyMessageTtl         = 1000;
+    protected $_perReplyMessageTtl                  = 1;
+    protected static $_S_perReplyMessageTtl         = 1;
 
     /*
      * Dispatch / Collect assumes work in the mean time but channel is open almost immediately after sending
      * message therefore virtually making it always delivered but in future we might move it to only open channel after
      * collect method is triggered() hence defaults to 60sec.
      */
-    protected $_perDispatchReplyMessageTtl          = 60000;
-    protected static $_S_perDispatchReplyMessageTtl = 60000;
+    protected $_perDispatchReplyMessageTtl          = 60;
+    protected static $_S_perDispatchReplyMessageTtl = 60;
 
-    public static function ttl($settings)
+    public static function expires($key,$value=null)
     {
-        if(isset($settings['message'])) {
-            self::$_S_perMessageTtl                 = $settings['message'];
-        }
+        if($value!==null) {
+            if($key=='call')
+            {
+                if($value===0) {
+                    $value = null;
+                }
 
-        if(isset($settings['reply'])) {
-            self::$_S_perReplyMessageTtl            = $settings['reply'];
-        }
+                return self::$_S_perMessageTtl = $value;
+            }
+            elseif($key=='publish')
+            {
+                if(!$value) {
+                    $value = null;
+                }
 
-        if(isset($settings['collect'])) {
-            self::$_S_perDispatchReplyMessageTtl    = $settings['collect'];
+                return self::$_S_perPublishMessageTtl = $value;
+            }
+            else if($key=='reply')
+            {
+                if(!$value)
+                {
+                    throw new Exception('Reply expires can\'t be set to 0');
+                }
+
+                return self::$_S_perReplyMessageTtl = $value;
+            }
+            else if($key=='collect'){
+
+                if(!$value)
+                {
+                    throw new Exception('Collect expires can\'t be set to 0');
+                }
+
+                return self::$_S_perDispatchReplyMessageTtl = $value;
+            }
+            else if($key=='dispatch'){
+
+                if(!$value)
+                {
+                    throw new Exception('Dispatch expires can\'t be set to 0');
+                }
+
+                return self::$_S_perDispatchReplyMessageTtl = $value;
+            }
+        }
+        else
+        {
+            if($key=='call')
+            {
+                return self::$_S_perMessageTtl;
+            }
+            elseif($key=='publish')
+            {
+                return self::$_S_perPublishMessageTtl;
+            }
+            elseif($key=='reply')
+            {
+                return self::$_S_perReplyMessageTtl;
+            }
+            elseif($key=='collect')
+            {
+                return self::$_S_perDispatchReplyMessageTtl;
+            }
+            elseif($key=='dispatch')
+            {
+                return self::$_S_perDispatchReplyMessageTtl;
+            }
         }
     }
+
 
     public function timeout($seconds)
     {
@@ -106,13 +171,17 @@ class Client
                 'atom'                  => date(DATE_ATOM),
                 'mtimestamp'            => $mTime,
                 'timestamp'             => time()
-            ],
-
+            ]
         );
 
         if(isset($etc['topic']))
         {
             $payload['meta']['queue']['topic'] = $etc['topic'];
+        }
+
+        if(isset($etc['expires']))
+        {
+            $payload['meta']['expires'] = (float) $etc['expires'];
         }
 
         if($this->_serviceQRequest)
@@ -138,7 +207,17 @@ class Client
         return $top_frame['file'];
     }
 
-    protected function _preparePayloadProperties($properties,$correlationId=null,$replyTo=null)
+    protected function _getExpiresFromProps($props,$defaultSec)
+    {
+        $expires = $defaultSec*1000;
+        $expires = (isset($props['expires']) && $props['expires']) ? $props['expires']*1000 : $expires;
+        $expires = (isset($props['expiration']) && $props['expiration']) ? $props['expiration'] : $expires; //legacy
+        $expires = (int) $expires;
+
+        return $expires;
+    }
+
+    protected function _preparePayloadProperties($properties,$correlationId=null,$replyTo=null,$method='CALL')
     {
         $props = array();
 
@@ -163,11 +242,31 @@ class Client
             $props = array_merge($props,$properties);
         }
 
-        if(!isset($props['expiration']) && is_int($this->_perMessageTtl))
+        $dExpires = $this->_perMessageTtl;
+        if($method=='DISPATCH' OR $method=='COLLECT')
         {
-            $props['expiration'] = $this->_perMessageTtl;
+            $dExpires = $this->_perDispatchReplyMessageTtl;
+        }
+        elseif($method=='PUBLISH')
+        {
+            $dExpires = $this->_perPublishMessageTtl;
+        }
+        elseif($method=='REPLY')
+        {
+            $dExpires = $this->_perReplyMessageTtl;
         }
 
+        $props['expiration'] = $this->_getExpiresFromProps($properties,$dExpires);
+        if(!$props['expiration'])
+        {
+            unset($props['expiration']);
+        }
+
+        if(isset($props['expires']))
+        {
+            unset($props['expires']);
+        }
+        
         return $props;
     }
 
@@ -178,11 +277,13 @@ class Client
         $channelId = 'SQC'.uniqid();
         $this->_collectionChannels[$channelId] = 1;
 
-        $payload    = $this->_preparePayload($args[0],'DISPATCH');
-        $properties = $this->_preparePayloadProperties(@$args[1],$channelId,$channelId);
+        $payload    = $this->_preparePayload($args[0],'DISPATCH',[
+            'expires'   => $this->_getExpiresFromProps(@$args[1],$this->_perDispatchReplyMessageTtl)/1000 //in sec
+        ]);
+        $properties = $this->_preparePayloadProperties(@$args[1],$channelId,$channelId,'DISPATCH');
 
         $this->_channel->queue_declare($channelId, false, true, false, true, false, new AMQPTable(array(
-            "x-expires" => $this->_perDispatchReplyMessageTtl //milliseconds
+            "x-expires" => $this->_getExpiresFromProps(@$args[1],$this->_perDispatchReplyMessageTtl) //in milliseconds
         )));
 
         $this->_channel->basic_publish(new AMQPMessage(
@@ -308,7 +409,7 @@ class Client
         $this->_rpcResponse = null;
         $this->_rpcCorrId   = uniqid();
 
-        $properties = $this->_preparePayloadProperties(@$args[1],$this->_rpcCorrId,$callback_queue);
+        $properties = $this->_preparePayloadProperties(@$args[1],$this->_rpcCorrId,$callback_queue,'CALL');
 
         $msg = new AMQPMessage(
             $this->_preparePayload($args[0],'CALL'),
@@ -370,7 +471,7 @@ class Client
             {
                 $msg = new AMQPMessage(
                     $this->_preparePayload($args[0],'PUBLISH'),
-                    $this->_preparePayloadProperties(@$args[1])
+                    $this->_preparePayloadProperties(@$args[1],null,null,'PUBLISH')
                 );
 
                 $this->_channel->queue_declare($this->_queue, false, true, false, false);
@@ -477,18 +578,18 @@ class Client
             $correlation_id = $req->get('correlation_id');
         }
 
-        if(!isset($properties['expiration']))
-        {
-            $properties['expiration'] = $this->_perReplyMessageTtl;
+        $body = json_decode($req->body);
 
-            $body = json_decode($req->body);
-            if(@$body->meta->method == "DISPATCH")
-            {
-                $properties['expiration'] = $this->_perDispatchReplyMessageTtl;
-            }
+        $method = "REPLY";
+        if(@$body->meta->method=="DISPATCH")
+        {
+            $method                 = "DISPATCH";
+
+            if(isset($body->meta->expires))
+                $properties['expires']  = $body->meta->expires;
         }
 
-        $properties = $this->_preparePayloadProperties($properties,$correlation_id);
+        $properties = $this->_preparePayloadProperties($properties,$correlation_id,null,$method);
 
         $msg = new AMQPMessage(
             $this->_preparePayload($msg,'REPLY'),
@@ -615,9 +716,10 @@ class Client
             $this->type(self::$_queueTypeMapping[$queue]);
         }
 
-        $this->_perMessageTtl               = self::$_S_perMessageTtl;
-        $this->_perReplyMessageTtl          = self::$_S_perReplyMessageTtl;
-        $this->_perDispatchReplyMessageTtl  = self::$_S_perDispatchReplyMessageTtl;
+        $this->_perMessageTtl               = &self::$_S_perMessageTtl;
+        $this->_perReplyMessageTtl          = &self::$_S_perReplyMessageTtl;
+        $this->_perDispatchReplyMessageTtl  = &self::$_S_perDispatchReplyMessageTtl;
+        $this->_perPublishMessageTtl        = &self::$_S_perPublishMessageTtl;
     }
 
     public static function driver($driver)
