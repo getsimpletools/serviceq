@@ -22,7 +22,7 @@ class Client
 
     protected $_commands = array();
     protected $_longCommands = array(
-        'reconnect',
+        "reconnect",
         'service',
         'timeout',
 
@@ -189,7 +189,7 @@ class Client
         unset($service);
 
         $cli->logo();
-        $cli->success("Connected to $username@$host/$vhost");
+        $cli->success("Connected to $username@$host/".trim($vhost," /\t\n"));
         echo PHP_EOL;
 
         $this->_historyFile = sys_get_temp_dir().'/'.'serviceq-terminal-'.$username.'-'.hash('sha256',($host.$password)).'.log';
@@ -200,6 +200,7 @@ class Client
         while(true)
         {
             $cmd = $this->readLine();
+
             if(in_array($cmd,['exit','quit','aloha','bye']))
             {
                 return $cli->debug('See ya');
@@ -302,9 +303,14 @@ class Client
     protected $_timeout = 30;
     protected $_queue = '';
 
-    public function _checkCallableCommandArgs($cmd,$body)
+    public function _checkCallableCommandArgs($cmd,$body,$queue=null)
     {
-        if(!$this->_queue)
+        if(!$queue)
+        {
+            $queue = $this->_queue;
+        }
+
+        if(!$queue)
         {
             throw new \Exception('Please specify your service queue first using `service` command');
         }
@@ -314,26 +320,82 @@ class Client
             throw new \Exception('Missing request data');
         }
 
-        if(!$body)
+        if(!$body && $body!==false)
         {
             throw new \Exception('Malformed request data');
         }
     }
 
-    public function _getService()
+    public function _getService($service=null)
     {
-        if(!isset($this->_services[$this->_queue]))
-            $this->_services[$this->_queue] = ServiceQ\Client::service($this->_queue);
+        if(!$service)
+        {
+            $service = $this->_queue;
+        }
 
-        return $this->_services[$this->_queue];
+        if(!isset($this->_services[$service]))
+            $this->_services[$service] = ServiceQ\Client::service($service);
+
+        return $this->_services[$service];
     }
 
-    public function _parseCommand($cmd)
+    /*
+     * Supports:
+     * -e
+     * -e <value>
+     * --long-param
+     * --long-param=<value>
+     * --long-param <value>
+     * <value>
+     */
+    protected function _getOptions(array $args,$noopt=array())
+    {
+        $result = array();
+
+        $params = array_filter($args);
+        // could use getopt() here (since PHP 5.3.0), but it doesn't work relyingly
+        reset($params);
+        while (list($tmp, $p) = each($params)) {
+            if ($p{0} == '-') {
+                $pname = substr($p, 1);
+                $value = true;
+                if ($pname{0} == '-') {
+                    // long-opt (--<param>)
+                    $pname = substr($pname, 1);
+                    if (strpos($p, '=') !== false) {
+                        // value specified inline (--<param>=<value>)
+                        list($pname, $value) = explode('=', substr($p, 2), 2);
+                    }
+                }
+                // check if next parameter is a descriptor or a value
+                $nextparm = current($params);
+                if (!in_array($pname, $noopt) && $value === true && $nextparm !== false && $nextparm{0} != '-') list($tmp, $value) = each($params);
+                $result[$pname] = $value;
+            } else {
+                // param doesn't belong to any option
+                $result[] = $p;
+            }
+        }
+        return $result;
+    }
+
+    public function _runCommand($cmd,$args=array())
     {
         $command = array();
         $command['cmd'] = '';
 
+        $service = isset($args['s']) ? $args['s'] : $this->_queue;
+        $timeout = isset($args['t']) ? $args['t'] : 90;
+
+        preg_match('/[\{\[].*[\}\]]/',$cmd,$matches);
+        $body = @$matches[0];
+        if($body)
+        {
+            $body = json_decode($body);
+        }
+
         $cmd = explode(' ',$cmd);
+
         if(!in_array($cmd[0],$this->_commands))
         {
             throw new \Exception('Unrecognised method: '.$cmd[0]);
@@ -380,10 +442,9 @@ class Client
 
                     $this->_ranCommands['publish'] = 1;
 
-                    $body = json_decode(@$cmd[1]);
-                    $this->_checkCallableCommandArgs(@$cmd[1],$body);
+                    $this->_checkCallableCommandArgs(@$cmd[1],$body,$service);
 
-                    $this->_getService()->timeout($this->_timeout)->publish($body);
+                    $this->_getService($service)->timeout($timeout)->publish($body);
 
                     $this->_cli->line();
                     $this->_cli->success('Published OK');
@@ -394,13 +455,12 @@ class Client
 
                 case ($cmd[0] == 'call' || $cmd[0] == 'c'):
 
-                    $body = json_decode(@$cmd[1]);
-                    $this->_checkCallableCommandArgs(@$cmd[1],$body);
+                    $this->_checkCallableCommandArgs(@$cmd[1],$body,$service);
 
                     $exception = false;
 
                     try {
-                        $res = $this->_getService()->timeout($this->_timeout)->call($body);
+                        $res = $this->_getService($service)->timeout($timeout)->call($body);
                         $this->_ranCommands['call'] = 1;
                     }
                     catch(ServiceQ\ResponseException $e)
@@ -428,10 +488,9 @@ class Client
 
                     $this->_ranCommands['dispatch'] = 1;
 
-                    $body = json_decode(@$cmd[1]);
-                    $this->_checkCallableCommandArgs(@$cmd[1],$body);
+                    $this->_checkCallableCommandArgs(@$cmd[1],$body,$service);
 
-                    $id = $this->_getService()->timeout($this->_timeout)->dispatch($body);
+                    $id = $this->_getService($service)->timeout($timeout)->dispatch($body);
 
                     $this->_cli->line();
                     $this->_cli->success('Request ID: '.$id);
@@ -442,11 +501,13 @@ class Client
 
                 case ($cmd[0] == 'collect' || $cmd[0] == 'co'):
 
+                    $this->_checkCallableCommandArgs(@$cmd[1],false,$service);
+
                     $requestId = isset($cmd[1]) ?  $cmd[1]: null;
                     $exception = false;
 
                     try {
-                        $res = $this->_getService()->timeout($this->_timeout)->collect($requestId);
+                        $res = $this->_getService($service)->timeout($timeout)->collect($requestId);
                         $this->_ranCommands['collect'] = 1;
                     }
                     catch(ServiceQ\ResponseException $e)
@@ -472,13 +533,15 @@ class Client
 
                 case 'collect-nowait':
 
+                    $this->_checkCallableCommandArgs(@$cmd[1],false,$service);
+
                     $requestId = isset($cmd[1]) ?  $cmd[1]: null;
 
                     $exception = false;
 
                     try
                     {
-                        $res = $this->_getService()->collectNoWait($requestId);
+                        $res = $this->_getService($service)->collectNoWait($requestId);
                     }
                     catch(ServiceQ\ResponseException $e)
                     {
@@ -589,7 +652,8 @@ class Client
 
     public function _evalCommand($cmd)
     {
-        $this->_parseCommand($cmd);
+        $options = $this->_getOptions(explode(' ',$cmd));
+        $this->_runCommand($cmd,$options);
     }
 
     public function readLine($prompt='',$addHistory=true)

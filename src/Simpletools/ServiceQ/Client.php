@@ -34,6 +34,8 @@ class Client
     protected $_collectionChannels = array();
     protected $_collectionResponses = array();
 
+    protected $_packages = array();
+
     /*
      * Times are in seconds
      * set to null to keep them till delivered - no expiration
@@ -309,14 +311,24 @@ class Client
     public function collectNoWait()
     {
         $args = func_get_args();
-        $channelId=@$args[0];
+        $packageId=@$args[0];
 
-        if(!$channelId)
+        if(isset($this->_packages[$packageId]))
         {
-            $channelId = key($this->_collectionChannels);
-            if(!$channelId)
+            if($this->_packages[$packageId]==410) {
+                throw new Exception('Gone',410);
+            }
+            else {
+                throw new Exception('This packageId has been already collected', 404);
+            }
+        }
+
+        if(!$packageId)
+        {
+            $packageId = key($this->_collectionChannels);
+            if(!$packageId)
             {
-                throw new Exception('Please specify collection id');
+                throw new Exception('Please specify packageId',400);
             }
         }
 
@@ -326,20 +338,23 @@ class Client
 
         try {
 
-            $res = $this->_channel->basic_get($channelId,true);
+            $res = $this->_channel->basic_get($packageId,true);
             if(!$res) return null;
 
             $response               = json_decode($res->body);
             $this->_checkResponse($response);
 
-            unset($this->_collectionChannels[$channelId]);
+            unset($this->_collectionChannels[$packageId]);
 
+            $this->_packages[$packageId] = 1;
             return $response;
         }
         catch(\Exception $e)
         {
             $this->_channel->close();
             $this->_channel = $this->_connection->channel();
+
+            $this->_packages[$packageId] = 410;
 
             throw new Exception('Gone',410);
         }
@@ -348,20 +363,25 @@ class Client
     public function collect()
     {
         $args = func_get_args();
-        $channelId=@$args[0];
+        $packageId=@$args[0];
 
-        if(!$channelId)
+        if(isset($this->_packages[$packageId]))
         {
-            $channelId = key($this->_collectionChannels);
-            if(!$channelId)
+            throw new Exception('This packageId has been already collected',404);
+        }
+
+        if(!$packageId)
+        {
+            $packageId = key($this->_collectionChannels);
+            if(!$packageId)
             {
-                throw new Exception('Please specify collection id');
+                throw new Exception('Please specify packageId',400);
             }
         }
 
         try {
             $this->_channel->basic_consume(
-                $channelId, '', false, false, false, false,
+                $packageId, '', false, false, false, false,
                 array($this, '_collector')
             );
         }
@@ -386,9 +406,14 @@ class Client
 
         if($exception) throw $exception;
 
-        unset($this->_collectionChannels[$channelId]);
-        $response = isset($this->_collectionResponses[$channelId]) ? $this->_collectionResponses[$channelId] : null;
-        unset($this->_collectionResponses[$channelId]);
+        unset($this->_collectionChannels[$packageId]);
+        $response = isset($this->_collectionResponses[$packageId]) ? $this->_collectionResponses[$packageId] : null;
+        unset($this->_collectionResponses[$packageId]);
+
+        if($response)
+        {
+            $this->_packages[$packageId] = 1;
+        }
 
         return $response;
     }
