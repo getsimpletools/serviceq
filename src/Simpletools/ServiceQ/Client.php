@@ -5,6 +5,7 @@ namespace Simpletools\ServiceQ;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 use PhpAmqpLib\Connection\AMQPSSLConnection;
 use PhpAmqpLib\Message\AMQPMessage;
+use PhpAmqpLib\Wire\AMQPTable;
 use Simpletools\ServiceQ\Driver\QDriver;
 
 class Client
@@ -174,24 +175,21 @@ class Client
     {
         $args = func_get_args();
 
-        $channelId = uniqid();
-        $this->_collectionChannels[$channelId] = $channel = $this->_connection->channel();
-
-        list($callback_queue, ,) = $channel->queue_declare("", false, false, true, true);
+        $channelId = 'SQC'.uniqid();
+        $this->_collectionChannels[$channelId] = 1;
 
         $payload    = $this->_preparePayload($args[0],'DISPATCH');
-        $properties = $this->_preparePayloadProperties(@$args[1],$channelId,$callback_queue);
+        $properties = $this->_preparePayloadProperties(@$args[1],$channelId,$channelId);
 
-        $channel->basic_publish(new AMQPMessage(
+        $this->_channel->queue_declare($channelId, false, true, false, true, false, new AMQPTable(array(
+            "x-expires" => $this->_perDispatchReplyMessageTtl //milliseconds
+        )));
+
+        $this->_channel->basic_publish(new AMQPMessage(
             $payload, $properties
         ), '', $this->_queue);
 
-        $channel->basic_consume(
-            $callback_queue, '', false, false, false, false,
-            array($this,'_collector')
-        );
-
-        return $channelId;
+        return (string) $channelId;
     }
 
     public function _collector($res)
@@ -200,21 +198,75 @@ class Client
 
         $response               = json_decode($res->body);
         $this->_collectionResponses[$id] =  $response;
+
+        $res->delivery_info['channel']->basic_ack($res->delivery_info['delivery_tag']);
+
         $this->_checkResponse($response);
+    }
+
+
+    public function collectNoWait()
+    {
+        $args = func_get_args();
+        $channelId=@$args[0];
+
+        if(!$channelId)
+        {
+            $channelId = key($this->_collectionChannels);
+            if(!$channelId)
+            {
+                throw new Exception('Please specify collection id');
+            }
+        }
+
+        $this
+            ->status(200)
+            ->meta(null);
+
+        try {
+
+            $res = $this->_channel->basic_get($channelId,true);
+            if(!$res) return null;
+
+            $response               = json_decode($res->body);
+            $this->_checkResponse($response);
+
+            unset($this->_collectionChannels[$channelId]);
+
+            return $response;
+        }
+        catch(\Exception $e)
+        {
+            $this->_channel->close();
+            $this->_channel = $this->_connection->channel();
+
+            throw new Exception('Gone',410);
+        }
     }
 
     public function collect()
     {
         $args = func_get_args();
         $channelId=@$args[0];
+
         if(!$channelId)
         {
             $channelId = key($this->_collectionChannels);
+            if(!$channelId)
+            {
+                throw new Exception('Please specify collection id');
+            }
         }
 
-        if(!isset($this->_collectionChannels[$channelId]))
+        try {
+            $this->_channel->basic_consume(
+                $channelId, '', false, false, false, false,
+                array($this, '_collector')
+            );
+        }
+        catch(\Exception $e)
         {
-            throw new Exception('Provided collection id does not exists');
+            throw $e;
         }
 
         $this
@@ -224,20 +276,18 @@ class Client
         $exception = null;
 
         try {
-            $this->_collectionChannels[$channelId]->wait(null, false, $this->_callTimeout);
+            $this->_channel->wait(null, false, $this->_callTimeout);
         }
         catch(\Exception $e)
         {
             $exception = $e;
         }
 
-        $this->_collectionChannels[$channelId]->close();
+        if($exception) throw $exception;
 
         unset($this->_collectionChannels[$channelId]);
         $response = isset($this->_collectionResponses[$channelId]) ? $this->_collectionResponses[$channelId] : null;
         unset($this->_collectionResponses[$channelId]);
-
-        if($exception) throw $exception;
 
         return $response;
     }
@@ -248,10 +298,9 @@ class Client
 
         $args = func_get_args();
 
-        $channel = $this->_connection->channel();
-        list($callback_queue, ,) = $channel->queue_declare("", false, false, true, true);
+        list($callback_queue, ,) = $this->_channel->queue_declare("", false, false, true, true);
 
-        $channel->basic_consume(
+        $this->_channel->basic_consume(
             $callback_queue, '', false, false, false, false,
             array($this, '_onRpcResponse')
         );
@@ -266,7 +315,7 @@ class Client
             $properties
         );
 
-        $channel->basic_publish($msg, '', $this->_queue);
+        $this->_channel->basic_publish($msg, '', $this->_queue);
 
         $this
             ->status(200)
@@ -274,16 +323,14 @@ class Client
 
         try {
             while (!$this->_rpcResponse) {
-                $channel->wait(null, false, $this->_callTimeout);
+                $this->_channel->wait(null, false, $this->_callTimeout);
             }
         }
         catch(\Exception $e)
         {
-            $channel->close();
             throw $e;
         }
 
-        $channel->close();
         return $this->_rpcResponse;
     }
 
@@ -634,11 +681,6 @@ class Client
 
     public function __destruct()
     {
-        foreach($this->_collectionChannels as $channel)
-        {
-            $channel->close();
-        }
-
         $this->_channel->close();
         $this->_connection->close();
     }

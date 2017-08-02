@@ -18,8 +18,11 @@ class Client
     protected $_historyFile;
     protected $_ranCommands = array();
 
+    protected $_settings;
+
     protected $_commands = array();
     protected $_longCommands = array(
+        'reconnect',
         'service',
         'timeout',
 
@@ -31,7 +34,8 @@ class Client
         'clear',
         'quit',
 
-        'clear-history'
+        'clear-history',
+        'collect-nowait'
     );
 
     protected $_exitCommands = array(
@@ -71,6 +75,29 @@ class Client
         }
     }
 
+    public function connect($settings=null)
+    {
+        if($settings)
+        {
+            $this->_settings = $settings;
+        }
+        else
+        {
+            $settings = $this->_settings;
+        }
+
+        ServiceQ\Client::driver(
+            new ServiceQ\Driver\RabbitMQ($settings)
+        );
+
+        ServiceQ\Client::service('dummyqueueueuue');
+    }
+
+    public function settings($settings)
+    {
+        $this->_settings = $settings;
+    }
+
     public function run()
     {
         $cli    = $this->_cli = new Cli();
@@ -95,7 +122,6 @@ class Client
             $settings['port']   = 5672;
             $settings['vhost']  = '/';
         }
-
         
         $host       = isset($options['host']) ? $options['host'] : $settings['host'];
         $port       = isset($options['port']) ? $options['port'] : $settings['port'];
@@ -136,17 +162,18 @@ class Client
             "vhost"     => $vhost
         );
 
-        ServiceQ\Client::driver(
-            new ServiceQ\Driver\RabbitMQ($settings)
-        );
+        $this->settings($settings);
 
         try {
-            $service = ServiceQ\Client::service('dummyqueueueuue');
+            $this->connect();
+        }
+        catch(\Exception $e)
+        {
+            return $this->_cli->error("ERROR: ".$e->getMessage());
         }
         catch(\Throwable $e)
         {
-            //return $cli->error("ERROR 403: Access denied for $username@$host");
-            return $cli->error("ERROR: ".$e->getMessage());
+            return $this->_cli->error("ERROR: ".$e->getMessage());
         }
 
         unset($service);
@@ -168,12 +195,17 @@ class Client
                 return $cli->debug('See ya');
             }
 
-            try {
+            try
+            {
                 $this->_evalCommand($cmd);
+            }
+            catch(\Exception $e)
+            {
+                $cli->error($e->getCode().' '.$e->getMessage());
             }
             catch(\Throwable $e)
             {
-                $cli->error($e->getMessage());
+                $cli->error($e->getCode().' '.$e->getMessage());
             }
         }
     }
@@ -203,10 +235,16 @@ class Client
     {
         $files = scandir($haystack);
 
+        file_put_contents('/MyData/Workspace/debug.line',var_export(time().'---'.$haystack.'/'.$needle,true),FILE_APPEND);
+
         if($needle)
         {
             if(is_dir($haystack.'/'.$needle))
             {
+
+                file_put_contents('/MyData/Workspace/debug.line','#1',FILE_APPEND);
+
+
                 $files = scandir($haystack.'/'.$needle);
                 if($files)
                 {
@@ -215,11 +253,15 @@ class Client
             }
             elseif(stripos($needle,'/')===false)
             {
+                file_put_contents('/MyData/Workspace/debug.line','#2',FILE_APPEND);
+                file_put_contents('/MyData/Workspace/debug.line',var_export($files,true),FILE_APPEND);
+
                 $res = $this->_getMatchedPaths($files,$needle,$prefix);
                 return $res;
             }
             elseif(!$recursive)
             {
+                file_put_contents('/MyData/Workspace/debug.line','#3',FILE_APPEND);
                 $needle     = explode('/',$needle);
                 $prefix2    = array_pop($needle);
 
@@ -234,18 +276,27 @@ class Client
         return $this->_getMatchedPaths($files,$needle);
     }
 
-    protected function _completion($cmd)
+    protected function _completion($cmd,$position)
     {
-        $line       = readline_info();
-        $linebuffer = $line['line_buffer'];
+        file_put_contents('/MyData/Workspace/debug.line',var_export(time().' CMD: '.$cmd.PHP_EOL,true),FILE_APPEND);
 
-        $linebuffer = explode(' ',$linebuffer);
-        if(in_array(trim($linebuffer[0]), array('service','use','queue','q','s')) && $this->_servicesDir)
+
+        $argument = true;
+
+        if(strlen($cmd)>=$position && stripos($cmd,'/')===false)
         {
-            $ret = $this->_scandir(trim(@$linebuffer[1],'/ '),$this->_servicesDir);
+            $argument = false;
+        }
+
+        file_put_contents('/MyData/Workspace/debug.line','ARG: '.var_export($argument,true),FILE_APPEND);
+        file_put_contents('/MyData/Workspace/debug.line','POS: '.var_export($position,true),FILE_APPEND);
+
+        if($argument && $this->_servicesDir)
+        {
+            $ret = $this->_scandir(trim($cmd,'/ '),$this->_servicesDir);
             return $ret;
         }
-        elseif(!isset($linebuffer[1]))
+        elseif(!$argument)
         {
             return $this->_longCommands;
         }
@@ -368,7 +419,8 @@ class Client
                     $this->_cli->info('Service queue: '.($this->_queue));
                     $this->_cli->info('Time taken (sec): '.($res->meta->servingTimeSec));
                     $this->_cli->info('Body: ');
-                    echo json_encode($res->body,JSON_PRETTY_PRINT).PHP_EOL.PHP_EOL;
+                    echo json_encode($res->body, JSON_PRETTY_PRINT) . PHP_EOL . PHP_EOL;
+
                     $this->_cli->line();
 
                     break;
@@ -419,8 +471,50 @@ class Client
                     $this->_cli->info('Service queue: '.($this->_queue));
                     $this->_cli->info('Time taken (sec): '.($res->meta->servingTimeSec));
                     $this->_cli->info('Response: ');
-                    echo json_encode($res->body,JSON_PRETTY_PRINT).PHP_EOL.PHP_EOL;
+                    echo json_encode($res->body, JSON_PRETTY_PRINT) . PHP_EOL . PHP_EOL;
+
                     $this->_cli->line();
+
+                    break;
+
+                case 'collect-nowait':
+
+                    if(!isset($this->_services[$this->_queue]))
+                        $this->_services[$this->_queue] = ServiceQ\Client::service($this->_queue);
+
+                    $requestId = isset($cmd[1]) ?  $cmd[1]: null;
+
+                    $exception = false;
+
+                    try
+                    {
+                        $res = $this->_services[$this->_queue]->collectNoWait($requestId);
+                    }
+                    catch(ServiceQ\ResponseException $e)
+                    {
+                        $exception = true;
+                        $res = $e->getResponse();
+                    }
+
+                    if($res) {
+                        $this->_cli->line();
+                        if (!$exception) {
+                            $this->_cli->success('Response status: ' . $res->status . ' ' . $res->statusMsg);
+                        } else {
+                            $this->_cli->error('Response status: ' . $res->status . ' ' . $res->statusMsg);
+                        }
+
+                        $this->_cli->info('Service queue: ' . ($this->_queue));
+                        $this->_cli->info('Time taken (sec): ' . ($res->meta->servingTimeSec));
+                        $this->_cli->info('Response: ');
+                        echo json_encode($res->body, JSON_PRETTY_PRINT) . PHP_EOL . PHP_EOL;
+
+                        $this->_cli->line();
+                    }
+                    else
+                    {
+                        $this->_cli->debug('Not ready yet or already collected');
+                    }
 
                     break;
 
@@ -442,6 +536,12 @@ class Client
 
                     readline_clear_history();
                     $this->_cli->debug('History has been cleaned');
+                    break;
+
+                case ($cmd[0] == 'reconnect'):
+
+                    $this->connect();
+                    $this->_cli->success('Reconnected');
                     break;
 
                 default:
@@ -476,7 +576,10 @@ class Client
         }
 
         if($addHistory && $line && !in_array($line,$this->_exitCommands)) {
-                readline_add_history($line);
+            readline_add_history($line);
+
+            @touch($this->_historyFile);
+            @readline_write_history($this->_historyFile);
         }
 
         return $line;
