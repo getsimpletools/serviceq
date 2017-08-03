@@ -387,7 +387,7 @@ class Client
         }
         catch(\Exception $e)
         {
-            throw $e;
+            throw new Exception('Gone',410);
         }
 
         $this
@@ -460,11 +460,19 @@ class Client
         return $this->_rpcResponse;
     }
 
-    public function _onRpcResponse($rep)
+    public function _onRpcResponse($response)
     {
-        if($rep->get('correlation_id') == $this->_rpcCorrId)
+        if($response->get('correlation_id') == $this->_rpcCorrId)
         {
-            $this->_rpcResponse = json_decode($rep->body);
+            $this->_rpcResponse = json_decode($response->body);
+            //$response->delivery_info['channel']->basic_ack($response->delivery_info['delivery_tag']);
+
+            //$response->delivery_info['channel']->queue_delete($response->get('routing_key'));
+            //$response->delivery_info['channel']->queue_delete($response->get('routing_key'),null);
+
+            $response->delivery_info['channel']->close();
+            $this->_channel = $this->_connection->channel();
+
             $this->_checkResponse($this->_rpcResponse);
         }
     }
