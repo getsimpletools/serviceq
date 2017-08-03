@@ -347,6 +347,9 @@ class Client
             unset($this->_collectionChannels[$packageId]);
 
             $this->_packages[$packageId] = 1;
+
+            $this->_channel->queue_delete($packageId);
+
             return $response;
         }
         catch(\Exception $e)
@@ -413,6 +416,7 @@ class Client
         if($response)
         {
             $this->_packages[$packageId] = 1;
+            $this->_channel->queue_delete($packageId);
         }
 
         return $response;
