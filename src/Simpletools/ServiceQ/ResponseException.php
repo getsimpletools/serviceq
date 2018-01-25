@@ -13,6 +13,7 @@ class ResponseException extends \Exception
             $message = Client::getStatusText($code);
         }
 
+
         parent::__construct($message, $code, $previous);
     }
 
