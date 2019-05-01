@@ -416,6 +416,8 @@ class Client
         if($response)
         {
             $this->_packages[$packageId] = 1;
+
+            $this->_channel->basic_cancel($packageId);
             $this->_channel->queue_delete($packageId);
         }
 
