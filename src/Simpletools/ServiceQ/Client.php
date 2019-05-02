@@ -390,6 +390,9 @@ class Client
         }
         catch(\Exception $e)
         {
+            $this->_channel->close();
+            $this->_channel = $this->_connection->channel();
+            
             throw new Exception('Gone',410);
         }
 
