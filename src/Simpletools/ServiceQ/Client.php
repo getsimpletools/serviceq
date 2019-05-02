@@ -384,7 +384,7 @@ class Client
 
         try {
             $this->_channel->basic_consume(
-                $packageId, '', false, false, false, false,
+                $packageId, $packageId, false, false, false, false,
                 array($this, '_collector')
             );
         }
