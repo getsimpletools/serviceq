@@ -16,7 +16,9 @@ class Client
 
 	protected static $_isRunning;
 	protected static $_signal;
+
 	protected $_isServeService= false;
+	protected $_lastInstanceQueue ='';
 
 	protected $_connection;
 	protected $_channel;
@@ -819,6 +821,8 @@ class Client
 		$this->_channel = $this->_connection->channel();
 		$this->_queue = $queue;
 
+        self::$_lastInstanceQueue   = $this->_queue;
+
 		if(isset(self::$_queueTypeMapping[$queue]))
 		{
 			$this->type(self::$_queueTypeMapping[$queue]);
@@ -974,5 +978,10 @@ class Client
 	public function queue()
     {
         return $this->_queue;
+    }
+
+    public static function lastInstanceQueue()
+    {
+        return self::$_lastInstanceQueue;
     }
 }
