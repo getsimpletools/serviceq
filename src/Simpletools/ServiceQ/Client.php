@@ -980,6 +980,11 @@ class Client
         return $this->_queue;
     }
 
+    public function request()
+    {
+        return $this->_serviceQRequest;
+    }
+
     public static function lastInstanceQueue()
     {
         return self::$_lastInstanceQueue;
