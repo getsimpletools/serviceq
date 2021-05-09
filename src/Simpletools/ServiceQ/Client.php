@@ -970,4 +970,9 @@ class Client
 			throw new \Exception('Called undefined method ('.$name.')');
 
 	}
+
+	public function queue()
+    {
+        return $this->_queue;
+    }
 }
