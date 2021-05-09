@@ -18,7 +18,7 @@ class Client
 	protected static $_signal;
 
 	protected $_isServeService= false;
-	protected $_lastInstanceQueue ='';
+	protected static $_lastInstanceQueue ='';
 
 	protected $_connection;
 	protected $_channel;
