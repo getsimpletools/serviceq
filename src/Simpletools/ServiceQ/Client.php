@@ -33,6 +33,7 @@ class Client
     protected $_request;
 
     protected $_serviceQRequest;
+    protected static $_lastServiceQRequest;
 
     protected $_payloadStatus = 200;
     protected $_payloadMeta;
@@ -685,7 +686,7 @@ class Client
     public function setServiceQRequest($serviceQRequest)
     {
         if($this->_serviceQRequest) unset($this->_serviceQRequest);
-        $this->_serviceQRequest = $serviceQRequest;
+        self::$_lastServiceQRequest = $this->_serviceQRequest = $serviceQRequest;
 
         return $this;
     }
@@ -1012,6 +1013,11 @@ class Client
     public function request()
     {
         return $this->_serviceQRequest;
+    }
+
+    public function lastRequest()
+    {
+        return self::$_lastServiceQRequest;
     }
 
     public static function lastInstanceQueue()
