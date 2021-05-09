@@ -1014,6 +1014,11 @@ class Client
         return $this->_serviceQRequest;
     }
 
+    public function isServeService()
+    {
+        return $this->_isServeService;
+    }
+
     public static function lastInstanceQueue()
     {
         return self::$_lastInstanceQueue;
