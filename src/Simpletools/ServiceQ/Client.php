@@ -596,9 +596,27 @@ class Client
 		{
 			self::$_isRunning = false;
 			$this->_runExceptionBinders($e);
+            $this->_runThrowableBinders($e);
 			throw $e;
 		}
+        catch(\Throwable $e)
+        {
+            self::$_isRunning = false;
+            $this->_runThrowableBinders($e);
+            throw $e;
+        }
 	}
+
+    protected function _runThrowableBinders($e)
+    {
+        $bindings = Client::getBindings('onThrowable');
+        if($bindings)
+        {
+            foreach($bindings as $bind) {
+                $bind($e, $this);
+            }
+        }
+    }
 
 	protected function _runExceptionBinders($e)
 	{
@@ -814,9 +832,16 @@ class Client
 		catch(\Exception $e)
 		{
 			$this->_runExceptionBinders($e);
+            $this->_runThrowableBinders($e);
 
 			throw $e;
 		}
+        catch(\Throwable $e)
+        {
+            $this->_runThrowableBinders($e);
+
+            throw $e;
+        }
 
 		$this->_channel = $this->_connection->channel();
 		$this->_queue = $queue;
