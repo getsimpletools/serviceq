@@ -356,7 +356,7 @@ class Client
         // could use getopt() here (since PHP 5.3.0), but it doesn't work relyingly
         reset($params);
         while (list($tmp, $p) = each($params)) {
-            if ($p{0} == '-') {
+            if ($p[0] == '-') {
                 $pname = substr($p, 1);
                 $value = true;
                 if ($pname{0} == '-') {
