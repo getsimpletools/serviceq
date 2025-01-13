@@ -11,6 +11,8 @@ class Client
     protected $_prompt = 'ServiceQ<$ ';
     protected $_driver;
     protected $_cli;
+    protected $_timeout = 30;
+    protected $_queue = '';
 
     protected $_servicesDir;
     protected $_services = array();
@@ -70,7 +72,7 @@ class Client
         $this->_servicesDir = $dir;
     }
 
-    public function __construct($driver=null)
+    public function __construct(QDriver|null $driver=null)
     {
         $this->_commands = array_merge($this->_longCommands, $this->_aliasCommands, $this->_exitCommands, array('roar'));
         $this->_commands = array_unique($this->_commands);
@@ -85,7 +87,7 @@ class Client
         }
     }
 
-    public function connect($settings=null)
+    public function connect(array|null $settings=null)
     {
         if($settings)
         {
@@ -300,10 +302,9 @@ class Client
         }
     }
 
-    protected $_timeout = 30;
-    protected $_queue = '';
 
-    public function _checkCallableCommandArgs($cmd,$body,$queue=null)
+
+    public function _checkCallableCommandArgs($cmd,$body,string|null $queue=null)
     {
         if(!$queue)
         {
@@ -326,7 +327,7 @@ class Client
         }
     }
 
-    public function _getService($service=null)
+    public function _getService(string|null $service=null)
     {
         if(!$service)
         {
