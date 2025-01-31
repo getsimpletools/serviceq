@@ -72,7 +72,7 @@ class Client
         $this->_servicesDir = $dir;
     }
 
-    public function __construct(QDriver|null $driver=null)
+    public function __construct(mixed $driver=null)
     {
         $this->_commands = array_merge($this->_longCommands, $this->_aliasCommands, $this->_exitCommands, array('roar'));
         $this->_commands = array_unique($this->_commands);
@@ -87,7 +87,7 @@ class Client
         }
     }
 
-    public function connect(array|null $settings=null)
+    public function connect(mixed $settings=null)
     {
         if($settings)
         {
@@ -304,7 +304,7 @@ class Client
 
 
 
-    public function _checkCallableCommandArgs($cmd,$body,string|null $queue=null)
+    public function _checkCallableCommandArgs($cmd,$body,mixed $queue=null)
     {
         if(!$queue)
         {
@@ -327,7 +327,7 @@ class Client
         }
     }
 
-    public function _getService(string|null $service=null)
+    public function _getService(mixed $service=null)
     {
         if(!$service)
         {

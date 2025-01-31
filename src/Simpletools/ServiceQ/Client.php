@@ -72,7 +72,7 @@ class Client
     protected $_perDispatchReplyMessageTtl          = 60;
     protected static $_S_perDispatchReplyMessageTtl = 60;
 
-    public static function expires($key,string|null $value=null)
+    public static function expires($key, mixed $value=null)
     {
         if($value!==null) {
             if($key=='call')
@@ -226,7 +226,7 @@ class Client
         return $expires;
     }
 
-    protected function _preparePayloadProperties($properties,string|null $correlationId=null,string|null $replyTo=null,$method='CALL')
+    protected function _preparePayloadProperties($properties, mixed $correlationId=null, mixed $replyTo=null,$method='CALL')
     {
         $props = array();
 
@@ -653,7 +653,7 @@ class Client
         }
     }
 
-    public static function runServiceShutdownBinders(string|null $signal=null)
+    public static function runServiceShutdownBinders(mixed $signal=null)
     {
         if($signal)
             self::$_signal = $signal;
@@ -748,7 +748,7 @@ class Client
         return $this;
     }
 
-    public function publishFanout($msg,array|null $properties=null)
+    public function publishFanout($msg,mixed $properties=null)
     {
         $msg = new AMQPMessage(
             $this->_preparePayload($msg,'PUBLISH_FANOUT'),
@@ -759,7 +759,7 @@ class Client
         $this->_channel->basic_publish($msg, $this->_queue);
     }
 
-    public function publishTopic($topic,$msg,array|null $properties=null)
+    public function publishTopic($topic,$msg,mixed $properties=null)
     {
         $msg = new AMQPMessage(
             $this->_preparePayload($msg,'PUBLISH_TOPIC',['topic'=>$topic]),
@@ -770,7 +770,7 @@ class Client
         $this->_channel->basic_publish($msg, $this->_queue, $topic);
     }
 
-    public function publishDirect($key,$msg,array|null $properties=null)
+    public function publishDirect($key,$msg,mixed $properties=null)
     {
         $msg = new AMQPMessage(
             $this->_preparePayload($msg,'PUBLISH_DIRECT'),
