@@ -139,7 +139,7 @@ class Client
         $port       = isset($options['port']) ? $options['port'] : $settings['port'];
         $vhost      = isset($options['vhost']) ? $options['vhost'] : $settings['vhost'];
 
-        $username   = @$options['username'];
+        $username   = $options['username'] ?? '';
         if(!$username)
         {
             $username = isset($settings['username']) ? $settings['username'] : '';
@@ -354,29 +354,50 @@ class Client
         $result = array();
 
         $params = array_filter($args);
-        // could use getopt() here (since PHP 5.3.0), but it doesn't work relyingly
-        reset($params);
-        while (list($tmp, $p) = each($params)) {
-            if ($p[0] == '-') {
+
+        $count = count($params);
+        $keys = array_keys($params);
+
+        for ($i = 0; $i < $count; $i++)
+        {
+            $p = $params[$keys[$i]];
+
+            if ($p[0] == '-')
+            {
                 $pname = substr($p, 1);
                 $value = true;
-                if ($pname[0] == '-') {
+
+                if ($pname[0] == '-')
+                {
                     // long-opt (--<param>)
                     $pname = substr($pname, 1);
-                    if (strpos($p, '=') !== false) {
+                    if (strpos($p, '=') !== false)
+                    {
                         // value specified inline (--<param>=<value>)
                         list($pname, $value) = explode('=', substr($p, 2), 2);
                     }
                 }
+                else
+                {
+                    // value specified inline (--<param>=<value>)
+                    list($pname, $value) = explode('=', substr($p, 1), 2);
+                }
                 // check if next parameter is a descriptor or a value
-                $nextparm = current($params);
-                if (!in_array($pname, $noopt) && $value === true && $nextparm !== false && $nextparm[0] != '-') list($tmp, $value) = each($params);
+                if (!in_array($pname, $noopt) && $value === true && isset($params[$keys[$i + 1]]) && $params[$keys[$i + 1]][0] != '-')
+                {
+                    $value = $params[$keys[++$i]];
+                }
+
                 $result[$pname] = $value;
-            } else {
+
+            }
+            else
+            {
                 // param doesn't belong to any option
                 $result[] = $p;
             }
         }
+
         return $result;
     }
 
@@ -389,7 +410,7 @@ class Client
         $timeout = isset($args['t']) ? $args['t'] : 90;
 
         preg_match('/[\{\[].*[\}\]]/',$cmd,$matches);
-        $body = @$matches[0];
+        $body = $matches[0] ?? null;
         if($body)
         {
             $body = json_decode($body);
@@ -443,7 +464,7 @@ class Client
 
                     $this->_ranCommands['publish'] = 1;
 
-                    $this->_checkCallableCommandArgs(@$cmd[1],$body,$service);
+                    $this->_checkCallableCommandArgs($cmd[1]??'',$body,$service);
 
                     $this->_getService($service)->timeout($timeout)->publish($body);
 
@@ -456,7 +477,7 @@ class Client
 
                 case ($cmd[0] == 'call' || $cmd[0] == 'c'):
 
-                    $this->_checkCallableCommandArgs(@$cmd[1],$body,$service);
+                    $this->_checkCallableCommandArgs($cmd[1]??null,$body,$service);
 
                     $exception = false;
 
@@ -489,7 +510,7 @@ class Client
 
                     $this->_ranCommands['dispatch'] = 1;
 
-                    $this->_checkCallableCommandArgs(@$cmd[1],$body,$service);
+                    $this->_checkCallableCommandArgs($cmd[1]??null,$body,$service);
 
                     $id = $this->_getService($service)->timeout($timeout)->dispatch($body);
 
@@ -502,7 +523,7 @@ class Client
 
                 case ($cmd[0] == 'collect' || $cmd[0] == 'co'):
 
-                    $this->_checkCallableCommandArgs(@$cmd[1],false,$service);
+                    $this->_checkCallableCommandArgs($cmd[1]??null,false,$service);
 
                     $requestId = isset($cmd[1]) ?  $cmd[1]: null;
                     $exception = false;
@@ -534,7 +555,7 @@ class Client
 
                 case 'collect-nowait':
 
-                    $this->_checkCallableCommandArgs(@$cmd[1],false,$service);
+                    $this->_checkCallableCommandArgs($cmd[1]??null,false,$service);
 
                     $requestId = isset($cmd[1]) ?  $cmd[1]: null;
 
@@ -677,8 +698,8 @@ class Client
         if($addHistory && $line && !in_array($line,$this->_exitCommands)) {
             readline_add_history($line);
 
-            @touch($this->_historyFile);
-            @readline_write_history($this->_historyFile);
+            touch($this->_historyFile??'');
+            readline_write_history($this->_historyFile??null);
         }
 
         return $line;
@@ -712,7 +733,7 @@ class Client
 
     public function __destruct()
     {
-        @touch($this->_historyFile);
-        @readline_write_history($this->_historyFile);
+        touch($this->_historyFile??'');
+        readline_write_history($this->_historyFile??null);
     }
 }

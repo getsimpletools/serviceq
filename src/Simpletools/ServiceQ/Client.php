@@ -286,13 +286,16 @@ class Client
         $channelId = 'SQC'.uniqid();
         $this->_collectionChannels[$channelId] = 1;
 
+        if(!isset($args[1]) || !$args[1])
+            $args[1] = null;
+
         $payload    = $this->_preparePayload($args[0],'DISPATCH',[
-            'expires'   => $this->_getExpiresFromProps(@$args[1],$this->_perDispatchReplyMessageTtl)/1000 //in sec
+            'expires'   => $this->_getExpiresFromProps($args[1],$this->_perDispatchReplyMessageTtl)/1000 //in sec
         ]);
-        $properties = $this->_preparePayloadProperties(@$args[1],$channelId,$channelId,'DISPATCH');
+        $properties = $this->_preparePayloadProperties($args[1],$channelId,$channelId,'DISPATCH');
 
         $this->_channel->queue_declare($channelId, false, true, false, true, false, new AMQPTable(array(
-            "x-expires" => $this->_getExpiresFromProps(@$args[1],$this->_perDispatchReplyMessageTtl) //in milliseconds
+            "x-expires" => $this->_getExpiresFromProps($args[1],$this->_perDispatchReplyMessageTtl) //in milliseconds
         )));
 
         $this->_channel->basic_publish(new AMQPMessage(
@@ -318,7 +321,7 @@ class Client
     public function collectNoWait()
     {
         $args = func_get_args();
-        $packageId=@$args[0];
+        $packageId=$args[0]??null;
 
         if(isset($this->_packages[$packageId]))
         {
@@ -373,7 +376,7 @@ class Client
     public function collect()
     {
         $args = func_get_args();
-        $packageId=@$args[0];
+        $packageId=$args[0]??null;
 
         if(isset($this->_packages[$packageId]))
         {
@@ -450,7 +453,7 @@ class Client
         $this->_rpcResponse = null;
         $this->_rpcCorrId   = uniqid();
 
-        $properties = $this->_preparePayloadProperties(@$args[1],$this->_rpcCorrId,$callback_queue,'CALL');
+        $properties = $this->_preparePayloadProperties($args[1]??null,$this->_rpcCorrId,$callback_queue,'CALL');
 
         $msg = new AMQPMessage(
             $this->_preparePayload($args[0],'CALL'),
@@ -495,9 +498,9 @@ class Client
 
     protected function _checkResponse($response)
     {
-        if(substr(@$response->status,0,1)!=2)
+        if(substr($response->status??'',0,1)!=2)
         {
-            $e = new ResponseException("",@$response->status);
+            $e = new ResponseException("",$response->status??0);
             $e->setResponse($response);
 
             $bindings = Client::getBindings('onResponseException');
@@ -520,7 +523,7 @@ class Client
             {
                 $msg = new AMQPMessage(
                     $this->_preparePayload($args[0],'PUBLISH'),
-                    $this->_preparePayloadProperties(@$args[1],null,null,'PUBLISH')
+                    $this->_preparePayloadProperties($args[1]??null,null,null,'PUBLISH')
                 );
 
                 $this->_channel->queue_declare($this->_queue, false, true, false, false);
@@ -528,18 +531,18 @@ class Client
             }
             elseif($this->_type=='fanout')
             {
-                $this->publishFanout($args[0],@$args[1]);
+                $this->publishFanout($args[0], $args[1]??null);
             }
         }
         elseif(count($args)===2)
         {
             if($this->_type=='topic')
             {
-                $this->publishTopic($args[0],$args[1],@$args[2]);
+                $this->publishTopic($args[0],$args[1],$args[2]??null);
             }
             elseif($this->_type=='direct')
             {
-                $this->publishDirect($args[0],$args[1],@$args[2]);
+                $this->publishDirect($args[0],$args[1],$args[2]??null);
             }
         }
 
@@ -711,7 +714,7 @@ class Client
         $body = json_decode($req->body);
 
         $method = "REPLY";
-        if(@$body->meta->method=="DISPATCH")
+        if(isset($body->meta->method) && $body->meta->method && $body->meta->method=="DISPATCH")
         {
             $method                 = "DISPATCH";
 
@@ -792,7 +795,7 @@ class Client
 
         $settings = $driver->getSettings();
 
-        $host = explode('://',@$settings['host']);
+        $host = explode('://',$settings['host']??[]);
         if(!isset($host[1]))
         {
             $host['proto']  = 'ampqs';
@@ -814,21 +817,24 @@ class Client
                 if (!is_array($host['sslOptions'])) {
                     throw new Exception('sslOptions should be an array type');
                 }
-
+                // Deprecated:
+                // Use AMQPConnectionFactory with AMQPConnectionConfig::setIsSecure(true)
+                // and AMQPConnectionConfig::setSsl* methods.
+                // Will be removed as of v4.0
                 $this->_connection = new AMQPSSLConnection(
                     $host['host'],
-                    @$settings['port'],
-                    @$settings['username'],
-                    @$settings['password'],
+                    $settings['port'] ?? null,
+                    $settings['username'] ?? null,
+                    $settings['password'] ?? null,
                     isset($settings['vhost']) ? $settings['vhost'] : '/',
                     $host['sslOptions']
                 );
             } else {
                 $this->_connection = new AMQPStreamConnection(
                     $host['host'],
-                    @$settings['port'],
-                    @$settings['username'],
-                    @$settings['password'],
+                    $settings['port'] ?? null,
+                    $settings['username'] ?? null,
+                    $settings['password'] ?? null,
                     isset($settings['vhost']) ? $settings['vhost'] : '/'
                 );
             }
