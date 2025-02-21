@@ -242,7 +242,8 @@ class Cli
     public function line($text="")
     {
         $string     = "-";
-        $width      = exec('tput cols');
+        // PHP8 No longer casts empty string to 0;
+        $width      = (exec('tput cols')?:0);
        // $colors     = self::TEXT_COLOR_YELLOW;
         $colors     = "";
 
